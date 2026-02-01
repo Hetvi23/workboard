@@ -120,6 +120,13 @@ def _create_task_from_rule(rule, context=None):
 			"end_datetime": end_datetime,
 		}
 	)
+	# Set reference doctype/document when task is created from an event (context has the triggering doc)
+	if context and context.get("doc"):
+		ref_doc = context["doc"]
+		if frappe.db.has_column("WB Task", "custom_reference_doctype"):
+			doc.custom_reference_doctype = ref_doc.doctype
+		if frappe.db.has_column("WB Task", "custom_reference_document"):
+			doc.custom_reference_document = ref_doc.name
 	doc.fetch_checklist()
 	doc.save(ignore_permissions=True)
 	return doc
