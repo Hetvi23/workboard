@@ -6,7 +6,12 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
-  "checklist_item"
+  "checklist_item",
+  "section_break_verification",
+  "verification_doctype",
+  "verification_field",
+  "filter_type",
+  "value"
  ],
  "fields": [
   {
@@ -14,6 +19,41 @@
    "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Checklist Item"
+  },
+  {
+   "fieldname": "section_break_verification",
+   "fieldtype": "Section Break",
+   "label": "Background Verification"
+  },
+  {
+   "fieldname": "verification_doctype",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Verification Doctype",
+   "options": "DocType",
+   "description": "Source doctype to verify (e.g. Sales Order)"
+  },
+  {
+   "fieldname": "verification_field",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Verification Field",
+   "options": "DocField",
+   "description": "Field from above doctype to check"
+  },
+  {
+   "fieldname": "filter_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Filter Type",
+   "options": "\nEquals\nNot Equals\nLike\nNot Like\nIn\nNot In\nIs\nGreater Than (when number)\nGreater Than or Equals To (when number)\nLess Than (when number)\nLess Than or Equals To (when number)\nBetween (when date)\nAfter (when date)\nBefore (when date)\nOn or After (when date)\nOn or Before (when date)\nTimespan (when date)\nFiscal Year (when date)"
+  },
+  {
+   "fieldname": "value",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Value",
+   "description": "Apply filter value"
   }
  ],
  "grid_page_length": 50,

@@ -1,12 +1,81 @@
 # Copyright (c) 2025, Nesscale Solutions Pvt Ltd and contributors
 # For license information, please see license.txt
 
+import re
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import get_datetime, getdate, now_datetime, nowdate
+from frappe.utils import get_datetime, getdate, now_datetime, nowdate, flt, cstr
 
 from workboard.utils import get_workboard_settings
+
+
+def _check_filter_match(actual, expected_value, filter_type):
+	"""Return True if actual value matches expected per filter_type."""
+	if expected_value is None:
+		expected_value = ""
+	expected_value = cstr(expected_value).strip()
+	actual_str = cstr(actual).strip() if actual is not None else ""
+
+	if filter_type == "Equals":
+		return actual_str == expected_value
+	if filter_type == "Not Equals":
+		return actual_str != expected_value
+	if filter_type == "Like":
+		if not expected_value:
+			return False
+		pat = re.escape(expected_value).replace("%", ".*").replace("_", ".")
+		return bool(re.match("^" + pat + "$", actual_str, re.IGNORECASE))
+	if filter_type == "Not Like":
+		if not expected_value:
+			return True
+		pat = re.escape(expected_value).replace("%", ".*").replace("_", ".")
+		return not re.match("^" + pat + "$", actual_str, re.IGNORECASE)
+	if filter_type == "In":
+		if not expected_value:
+			return False
+		vals = [v.strip() for v in expected_value.split(",") if v.strip()]
+		return actual_str in vals
+	if filter_type == "Not In":
+		if not expected_value:
+			return True
+		vals = [v.strip() for v in expected_value.split(",") if v.strip()]
+		return actual_str not in vals
+	if filter_type == "Is":
+		# Is Empty / Is Not Empty
+		if expected_value and expected_value.lower() in ("empty", "null", "not set"):
+			return not actual_str
+		return bool(actual_str)
+	# Numeric
+	try:
+		actual_num = flt(actual)
+		expected_num = flt(expected_value)
+	except (TypeError, ValueError):
+		return actual_str == expected_value
+	if filter_type == "Greater Than (when number)":
+		return actual_num > expected_num
+	if filter_type == "Greater Than or Equals To (when number)":
+		return actual_num >= expected_num
+	if filter_type == "Less Than (when number)":
+		return actual_num < expected_num
+	if filter_type == "Less Than or Equals To (when number)":
+		return actual_num <= expected_num
+	# Date (simplified: compare as dates if possible)
+	try:
+		actual_d = getdate(actual) if actual else None
+		expected_d = getdate(expected_value) if expected_value else None
+	except Exception:
+		return actual_str == expected_value
+	if filter_type == "After (when date)":
+		return actual_d and expected_d and actual_d > expected_d
+	if filter_type == "Before (when date)":
+		return actual_d and expected_d and actual_d < expected_d
+	if filter_type == "On or After (when date)":
+		return actual_d and expected_d and actual_d >= expected_d
+	if filter_type == "On or Before (when date)":
+		return actual_d and expected_d and actual_d <= expected_d
+	# Default: equals
+	return actual_str == expected_value
 
 
 class WBTask(Document):
@@ -14,6 +83,7 @@ class WBTask(Document):
 		if self.status not in ("Open", "Done", "Completed", "Overdue"):
 			frappe.throw(_("Invalid Status"))
 		self.validate_overdue()
+		self.validate_checklist_verification()
 		self.enforce_checklist()
 		self.stamp_completion()
 
@@ -38,6 +108,44 @@ class WBTask(Document):
 			frappe.throw(_("Complete all checklist items before marking as Done or Completed"))
 		if all_done and self.status in ("Open", "In Progress", "Overdue"):
 			self.status = "Done" if self.task_type == "Manual" else "Completed"
+
+	def validate_checklist_verification(self):
+		"""When a checklist row is marked completed, verify source document has acceptable value if template has verification config."""
+		if not int(self.has_checklist or 0) or not self.checklist_template:
+			return
+		ref_doctype = getattr(self, "custom_reference_doctype", None) or getattr(self, "reference_doctype", None)
+		ref_name = getattr(self, "custom_reference_document", None) or getattr(self, "reference_document", None)
+		if not ref_doctype or not ref_name:
+			return
+		if not frappe.db.exists(ref_doctype, ref_name):
+			return
+		checklist_doc = frappe.get_cached_doc("WB Task Checklist Template", self.checklist_template)
+		template_rows = list(checklist_doc.wb_task_checklist_template_details or [])
+		task_rows = self.get("wb_task_checklist_details") or []
+		for i, task_row in enumerate(task_rows):
+			if not int(getattr(task_row, "completed", 0)):
+				continue
+			if i >= len(template_rows):
+				continue
+			tmpl = template_rows[i]
+			verification_doctype = getattr(tmpl, "verification_doctype", None)
+			verification_field = getattr(tmpl, "verification_field", None)
+			filter_type = getattr(tmpl, "filter_type", None)
+			expected_value = getattr(tmpl, "value", None)
+			if not verification_doctype or not verification_field or not filter_type:
+				continue
+			# DocField name is "DocType-fieldname"
+			fieldname = verification_field.split("-")[-1] if "-" in verification_field else verification_field
+			if verification_doctype != ref_doctype:
+				continue
+			if not frappe.db.has_column(ref_doctype, fieldname):
+				continue
+			actual = frappe.db.get_value(ref_doctype, ref_name, fieldname)
+			if not _check_filter_match(actual, expected_value, filter_type):
+				point_no = i + 1
+				frappe.throw(
+					_("Task checklist point no {0} is not done. Kindly clear it.").format(point_no)
+				)
 
 	def stamp_completion(self):
 		if self.status == "Completed":
