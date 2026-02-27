@@ -35,11 +35,10 @@
   },
   {
    "fieldname": "verification_field",
-   "fieldtype": "Link",
+   "fieldtype": "Data",
    "in_list_view": 1,
    "label": "Verification Field",
-   "options": "DocField",
-   "description": "Field from above doctype to check"
+   "description": "Field from above doctype to check (use Select Field in row)"
   },
   {
    "fieldname": "filter_type",

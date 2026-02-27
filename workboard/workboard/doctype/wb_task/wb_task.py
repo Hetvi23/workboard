@@ -10,6 +10,21 @@ from frappe.utils import get_datetime, getdate, now_datetime, nowdate, flt, cstr
 from workboard.utils import get_workboard_settings
 
 
+def _resolve_verification_fieldname(verification_field):
+	"""
+	Resolve verification_field to the actual DB fieldname.
+	Stored value may be a DocField name (hash) or the fieldname itself.
+	"""
+	if not verification_field:
+		return None
+	# If it's a DocField name (e.g. hash like 1c10g6u8qn), get fieldname from DocField
+	fieldname = frappe.db.get_value("DocField", verification_field, "fieldname")
+	if fieldname:
+		return fieldname
+	# Backward compat: value might already be fieldname (e.g. after migration)
+	return verification_field
+
+
 def _check_filter_match(actual, expected_value, filter_type):
 	"""Return True if actual value matches expected per filter_type."""
 	if expected_value is None:
@@ -134,8 +149,9 @@ class WBTask(Document):
 			expected_value = getattr(tmpl, "value", None)
 			if not verification_doctype or not verification_field or not filter_type:
 				continue
-			# DocField name is "DocType-fieldname"
-			fieldname = verification_field.split("-")[-1] if "-" in verification_field else verification_field
+			fieldname = _resolve_verification_fieldname(verification_field)
+			if not fieldname:
+				continue
 			if verification_doctype != ref_doctype:
 				continue
 			if not frappe.db.has_column(ref_doctype, fieldname):

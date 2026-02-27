@@ -144,3 +144,41 @@ def _context(doc):
 def get_workboard_settings():
 	"""Get WorkBoard Settings without permission checks"""
 	return frappe.get_doc("WorkBoard Settings", "WorkBoard Settings")
+
+
+@frappe.whitelist()
+def get_doctype_fields(doctype):
+	"""
+	Return list of { value: fieldname, label: label or fieldname } for the given doctype.
+	Used so Verification Field can show and store fieldname instead of DocField hash.
+	"""
+	if not doctype or not frappe.db.exists("DocType", doctype):
+		return []
+	fields = frappe.get_all(
+		"DocField",
+		filters={"parent": doctype, "parenttype": "DocType"},
+		fields=["fieldname", "label"],
+		order_by="idx",
+	)
+	return [
+		{"value": f["fieldname"], "label": (f.get("label") or f["fieldname"]) or f["fieldname"]}
+		for f in fields
+	]
+
+
+@frappe.whitelist()
+def get_docfield_fieldnames(docfield_names):
+	"""
+	Return dict mapping DocField name -> fieldname for display.
+	Used to show fieldname in grid when stored value is legacy DocField name (hash).
+	"""
+	if not docfield_names:
+		return {}
+	if isinstance(docfield_names, str):
+		docfield_names = [docfield_names]
+	rows = frappe.get_all(
+		"DocField",
+		filters={"name": ["in", docfield_names]},
+		fields=["name", "fieldname"],
+	)
+	return {r["name"]: r["fieldname"] for r in rows}
