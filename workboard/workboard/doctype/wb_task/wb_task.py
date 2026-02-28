@@ -94,7 +94,7 @@ def _check_filter_match(actual, expected_value, filter_type):
 
 
 class WBTask(Document):
-	def before_insert(self):
+	def before_validate(self):
 		if not self.assign_from:
 			self.assign_from = frappe.session.user
 
