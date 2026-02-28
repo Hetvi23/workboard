@@ -141,14 +141,14 @@
    "fieldname": "proof_of_work",
    "fieldtype": "Attach",
    "label": "Proof of Work",
-   "depends_on": "eval:doc.status in [\"Done\", \"Completed\"]",
+   "depends_on": "eval:doc.status != \"Cancelled\"",
    "mandatory_depends_on": "eval:doc.status in [\"Done\", \"Completed\"]"
   },
   {
    "fieldname": "task_completion_remark",
    "fieldtype": "Text",
    "label": "Task Completion Remark",
-   "depends_on": "eval:doc.status in [\"Done\", \"Completed\"]",
+   "depends_on": "eval:doc.status != \"Cancelled\"",
    "mandatory_depends_on": "eval:doc.status in [\"Done\", \"Completed\"]"
   },
   {
