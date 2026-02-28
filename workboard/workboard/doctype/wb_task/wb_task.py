@@ -94,9 +94,18 @@ def _check_filter_match(actual, expected_value, filter_type):
 
 
 class WBTask(Document):
+	def before_insert(self):
+		if not self.assign_from:
+			self.assign_from = frappe.session.user
+
 	def validate(self):
-		if self.status not in ("Open", "Done", "Completed", "Overdue"):
+		if self.status not in ("Open", "Done", "Completed", "Overdue", "Cancelled"):
 			frappe.throw(_("Invalid Status"))
+		if self.status in ("Done", "Completed"):
+			if not (self.proof_of_work and self.proof_of_work.strip()):
+				frappe.throw(_("Proof of Work is required when status is Done or Completed"))
+			if not (self.task_completion_remark and self.task_completion_remark.strip()):
+				frappe.throw(_("Task Completion Remark is required when status is Done or Completed"))
 		self.validate_overdue()
 		self.validate_checklist_verification()
 		self.enforce_checklist()
@@ -250,3 +259,50 @@ class WBTask(Document):
 		checklist_doc = frappe.get_doc("WB Task Checklist Template", self.checklist_template)
 		for row in checklist_doc.wb_task_checklist_template_details:
 			self.append("wb_task_checklist_details", {"checklist_item": row.checklist_item})
+
+	@frappe.whitelist()
+	def reopen(self):
+		"""Re-open a Done or Completed task and revert energy points."""
+		if self.status not in ("Done", "Completed"):
+			frappe.throw(_("Only Done or Completed tasks can be re-opened"))
+
+		settings = get_workboard_settings()
+		admin_role = settings.get("workboard_admin_role")
+		current_user = frappe.session.user
+		is_assigner = current_user == self.assign_from
+		has_admin = current_user == "Administrator" or (
+			admin_role and admin_role in frappe.get_roles(current_user)
+		)
+		if not is_assigner and not has_admin:
+			frappe.throw(_("Only the assigner can re-open this task"))
+
+		# Revert energy points linked to this task
+		logs = frappe.get_all(
+			"Energy Point Log",
+			filters={
+				"reference_doctype": "WB Task",
+				"reference_name": self.name,
+				"type": "Auto",
+				"reverted": 0,
+			},
+			pluck="name",
+		)
+		for log_name in logs:
+			log_doc = frappe.get_doc("Energy Point Log", log_name)
+			log_doc.revert(_("Task re-opened"), ignore_permissions=True)
+
+		self.proof_of_work = None
+		self.task_completion_remark = None
+		self.date_of_completion = None
+		self.timeliness = None
+		self.status = "Open"
+		self.save(ignore_permissions=True)
+
+	@frappe.whitelist()
+	def cancel_task(self):
+		"""Cancel an Open or Overdue task."""
+		if self.status not in ("Open", "Overdue"):
+			frappe.throw(_("Only Open or Overdue tasks can be cancelled"))
+
+		self.status = "Cancelled"
+		self.save(ignore_permissions=True)

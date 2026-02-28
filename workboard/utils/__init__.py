@@ -4,6 +4,39 @@ from frappe.utils import add_days, add_to_date, cint, get_datetime, getdate, now
 from frappe.utils.safe_exec import get_safe_globals
 
 
+def _get_end_datetime_from_assignee_shift(assign_to_user):
+	"""
+	Calculate task end_datetime based on Assign To user's Employee shift timing.
+	If task is created during user's shift: end = shift end time today.
+	If task is created after user's shift ended: end = shift end time tomorrow.
+	Returns None if HRMS not installed or employee/shift not found (caller will use time_limit_in_minutes).
+	"""
+	try:
+		from hrms.hr.doctype.shift_assignment.shift_assignment import (
+			get_actual_start_end_datetime_of_shift,
+			get_employee_shift,
+		)
+	except ImportError:
+		return None
+
+	employee = frappe.db.get_value("Employee", {"user_id": assign_to_user}, "name", cache=True)
+	if not employee:
+		return None
+
+	now = now_datetime()
+	# First check if we're currently within a shift
+	shift_info = get_actual_start_end_datetime_of_shift(employee, now, consider_default_shift=True)
+	if shift_info:
+		return shift_info.get("actual_end") or shift_info.get("end_datetime")
+
+	# We're outside any shift (e.g. after today's shift ended): get next shift (forward)
+	next_shift = get_employee_shift(employee, now, consider_default_shift=True, next_shift_direction="forward")
+	if next_shift:
+		return next_shift.get("actual_end") or next_shift.get("end_datetime")
+
+	return None
+
+
 def _resolve_assign_to(rule, context=None):
 	"""Resolve the assign_to user based on assign_to_type"""
 	assign_to_type = rule.get("assign_to_type") or "User"
@@ -87,19 +120,21 @@ def _create_task_from_rule(rule, context=None):
 		else (rule.description or "")
 	)
 
-	# Calculate end_datetime if time-based task
-	end_datetime = None
-	depends_on_time = cint(rule.depends_on_time or 0)
-	if depends_on_time and rule.time_limit_in_minutes:
-		end_datetime = add_to_date(now_datetime(), minutes=cint(rule.time_limit_in_minutes))
-
 	# Use Administrator as default assign_from for recurring/event tasks if not specified
 	assign_from = rule.assign_from
 	if not assign_from and (cint(rule.recurring or 0) or cint(rule.event or 0)):
 		assign_from = "Administrator"
 
-	# Resolve assign_to based on assign_to_type
+	# Resolve assign_to based on assign_to_type (needed early for shift-based end_datetime)
 	assign_to = _resolve_assign_to(rule, context=context)
+
+	# Calculate end_datetime if time-based task
+	# Prefer Assign To user's Employee shift timing: end = shift end (today or tomorrow if shift already over)
+	end_datetime = None
+	depends_on_time = cint(rule.depends_on_time or 0)
+	if depends_on_time and rule.time_limit_in_minutes:
+		shift_end = _get_end_datetime_from_assignee_shift(assign_to)
+		end_datetime = shift_end if shift_end else add_to_date(now_datetime(), minutes=cint(rule.time_limit_in_minutes))
 	if not assign_to:
 		frappe.throw(_("Could not resolve assign_to user for task rule '{0}'").format(rule.name))
 

@@ -22,6 +22,8 @@
   "assign_from",
   "column_break_ywis",
   "assign_to",
+  "proof_of_work",
+  "task_completion_remark",
   "section_break_uakq",
   "task_type",
   "column_break_fmsi",
@@ -52,7 +54,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Status",
-   "options": "\nOpen\nDone\nCompleted\nOverdue",
+   "options": "\nOpen\nDone\nCompleted\nOverdue\nCancelled",
    "read_only": 1,
    "reqd": 1
   },
@@ -120,7 +122,10 @@
    "fieldtype": "Link",
    "label": "Assign From",
    "options": "User",
-   "reqd": 1
+   "reqd": 1,
+   "fetch_from": "owner",
+   "fetch_if_empty": 1,
+   "read_only": 1
   },
   {
    "fieldname": "column_break_ywis",
@@ -132,6 +137,20 @@
    "label": "Assign To",
    "options": "User",
    "reqd": 1
+  },
+  {
+   "fieldname": "proof_of_work",
+   "fieldtype": "Attach",
+   "label": "Proof of Work",
+   "depends_on": "eval:doc.status in [\"Done\", \"Completed\"]",
+   "mandatory_depends_on": "eval:doc.status in [\"Done\", \"Completed\"]"
+  },
+  {
+   "fieldname": "task_completion_remark",
+   "fieldtype": "Text",
+   "label": "Task Completion Remark",
+   "depends_on": "eval:doc.status in [\"Done\", \"Completed\"]",
+   "mandatory_depends_on": "eval:doc.status in [\"Done\", \"Completed\"]"
   },
   {
    "fieldname": "section_break_uakq",

@@ -7,7 +7,43 @@ frappe.ui.form.on('WB Task', {
   },
   add_action_buttons(frm) {
     if (frm.is_new()) return;
-    
+
+    // Re-Open Task - when status is Done or Completed
+    if (['Done', 'Completed'].includes(frm.doc.status)) {
+      frm.add_custom_button(__('Re-Open Task'), () => {
+        frappe.confirm(
+          __('Are you sure you want to re-open this task? Energy points will be reverted.'),
+          () => {
+            frm.call({
+              method: 'reopen',
+              doc: frm.doc,
+              freeze: true,
+              freeze_message: __('Re-opening task...'),
+              callback: () => frm.reload_doc()
+            });
+          }
+        );
+      });
+    }
+
+    // Cancel - when status is Open or Overdue
+    if (['Open', 'Overdue'].includes(frm.doc.status)) {
+      frm.add_custom_button(__('Cancel'), () => {
+        frappe.confirm(
+          __('Are you sure you want to cancel this task?'),
+          () => {
+            frm.call({
+              method: 'cancel_task',
+              doc: frm.doc,
+              freeze: true,
+              freeze_message: __('Cancelling task...'),
+              callback: () => frm.reload_doc()
+            });
+          }
+        );
+      });
+    }
+
     const current_user = frappe.session.user;
     const is_assignee = current_user === frm.doc.assign_to;
     const is_assigner = current_user === frm.doc.assign_from;
