@@ -6,10 +6,22 @@ from datetime import timedelta
 
 
 def _is_employee_holiday(employee, date):
-	"""Return True if the given date is a holiday for the employee. Safe if ERPNext/HRMS not available."""
+	"""
+	Return True if `date` is a holiday for the employee.
+	Uses Frappe DB directly (no ERPNext import dependency) so it works on any site.
+	Looks up the Employee's holiday_list; falls back to Company default_holiday_list.
+	"""
 	try:
-		from erpnext.setup.doctype.employee.employee import is_holiday
-		return bool(is_holiday(employee, date, raise_exception=False))
+		holiday_list, company = frappe.db.get_value(
+			"Employee", employee, ["holiday_list", "company"]
+		) or (None, None)
+		if not holiday_list and company:
+			holiday_list = frappe.db.get_value("Company", company, "default_holiday_list")
+		if not holiday_list:
+			return False
+		return bool(
+			frappe.db.exists("Holiday", {"parent": holiday_list, "holiday_date": getdate(date)})
+		)
 	except Exception:
 		return False
 
@@ -55,12 +67,14 @@ def _get_end_datetime_from_assignee_shift_and_duration(assign_to_user, time_limi
 	if limit_mins <= 0:
 		return None
 
-	# Use nominal working hours (start_datetime, end_datetime) not grace period (actual_*)
-	# so task deadline stays within working hours (e.g. 15:00 not 20:00 with "allow check-out after").
+	# Use nominal working hours only (start_datetime/end_datetime from Shift Type),
+	# never the grace-period extensions (actual_start/actual_end) for task deadline calculation.
 	def _work_start(shift):
-		return get_datetime(shift.get("start_datetime") or shift.get("actual_start"))
+		v = shift.get("start_datetime")
+		return get_datetime(v) if v else get_datetime(shift.get("actual_start"))
 	def _work_end(shift):
-		return get_datetime(shift.get("end_datetime") or shift.get("actual_end"))
+		v = shift.get("end_datetime")
+		return get_datetime(v) if v else get_datetime(shift.get("actual_end"))
 
 	# 1) Effective start: shift work start if before shift, now if during working hours, next shift work start if after.
 	#    Skip any shift that falls on a holiday (task end datetime must not be on a holiday).
