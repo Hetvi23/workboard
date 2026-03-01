@@ -2,13 +2,102 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, add_to_date, cint, get_datetime, getdate, now_datetime, nowdate
 from frappe.utils.safe_exec import get_safe_globals
+from datetime import timedelta
+
+
+def _get_shift_for_datetime(employee, dt, consider_default_shift=True):
+	"""Return shift dict that contains dt, or the next shift after dt. Returns {} if none."""
+	from hrms.hr.doctype.shift_assignment.shift_assignment import (
+		get_actual_start_end_datetime_of_shift,
+		get_employee_shift,
+	)
+	in_shift = get_actual_start_end_datetime_of_shift(employee, dt, consider_default_shift)
+	if in_shift:
+		return in_shift
+	return get_employee_shift(employee, dt, consider_default_shift, next_shift_direction="forward") or {}
+
+
+def _get_end_datetime_from_assignee_shift_and_duration(assign_to_user, time_limit_in_minutes):
+	"""
+	Calculate task end_datetime by allocating time_limit_in_minutes only within the assignee's
+	shift hours (Employee > Shift). Does not count time outside shifts.
+
+	- If task is created before shift start (e.g. 8:00, shift 9:00–15:30): start counting from 9:00.
+	- If task is created during shift (e.g. 10:00, shift 9:00–15:30): start counting from 10:00.
+	- If task is created after shift (e.g. 22:00): start counting from next shift start (e.g. tomorrow 9:00).
+	- If the duration does not fit in one shift, remaining time is allocated from the next working shift(s).
+
+	Returns None if HRMS not installed or employee/shift not found (caller uses now + time_limit_in_minutes).
+	"""
+	try:
+		from hrms.hr.doctype.shift_assignment.shift_assignment import (
+			get_actual_start_end_datetime_of_shift,
+			get_employee_shift,
+		)
+	except ImportError:
+		return None
+
+	employee = frappe.db.get_value("Employee", {"user_id": assign_to_user}, "name", cache=True)
+	if not employee:
+		return None
+
+	now = get_datetime(now_datetime())
+	limit_mins = cint(time_limit_in_minutes) or 0
+	if limit_mins <= 0:
+		return None
+
+	# 1) Effective start: shift start if before shift, now if during shift, next shift start if after shift
+	current_shift = get_actual_start_end_datetime_of_shift(employee, now, consider_default_shift=True)
+	if current_shift:
+		# We're inside a shift: start counting from now
+		effective_start = now
+		shift_end = get_datetime(current_shift.get("actual_end") or current_shift.get("end_datetime"))
+	else:
+		# Outside shift: use next shift's start
+		next_shift = get_employee_shift(employee, now, consider_default_shift=True, next_shift_direction="forward")
+		if not next_shift:
+			return None
+		effective_start = get_datetime(next_shift.get("actual_start") or next_shift.get("start_datetime"))
+		shift_end = get_datetime(next_shift.get("actual_end") or next_shift.get("end_datetime"))
+
+	remaining_minutes = limit_mins
+	current_time = effective_start
+	max_days = 366
+	day_count = 0
+
+	while remaining_minutes > 0 and day_count < max_days:
+		# Get shift that contains current_time (or next shift if we're between shifts)
+		shift = _get_shift_for_datetime(employee, current_time)
+		if not shift:
+			return None
+		shift_start = get_datetime(shift.get("actual_start") or shift.get("start_datetime"))
+		shift_end = get_datetime(shift.get("actual_end") or shift.get("end_datetime"))
+
+		# If we're before this shift (e.g. between shifts), jump to shift start
+		if current_time < shift_start:
+			current_time = shift_start
+
+		minutes_available = max(0, (shift_end - current_time).total_seconds() / 60)
+		minutes_to_use = min(remaining_minutes, minutes_available)
+		remaining_minutes -= minutes_to_use
+		current_time = current_time + timedelta(minutes=minutes_to_use)
+
+		if remaining_minutes <= 0:
+			return current_time
+
+		# Move to next shift: use moment after this shift end so "forward" gives next shift
+		current_time = shift_end + timedelta(seconds=1)
+		day_count += 1
+
+	return current_time if remaining_minutes <= 0 else None
 
 
 def _get_end_datetime_from_assignee_shift(assign_to_user):
 	"""
 	Calculate task end_datetime based on Assign To user's Employee shift timing.
-	If task is created during user's shift: end = shift end time today.
-	If task is created after user's shift ended: end = shift end time tomorrow.
+	If task is created during user's shift: end = shift end time today (only if in future).
+	If task is created after user's shift ended: end = shift end time of next shift.
+	Never returns a datetime in the past (caller will use time_limit_in_minutes if no future shift).
 	Returns None if HRMS not installed or employee/shift not found (caller will use time_limit_in_minutes).
 	"""
 	try:
@@ -24,15 +113,21 @@ def _get_end_datetime_from_assignee_shift(assign_to_user):
 		return None
 
 	now = now_datetime()
-	# First check if we're currently within a shift
+
+	# First check if we're currently within a shift and shift end is still in the future
 	shift_info = get_actual_start_end_datetime_of_shift(employee, now, consider_default_shift=True)
 	if shift_info:
-		return shift_info.get("actual_end") or shift_info.get("end_datetime")
+		shift_end = shift_info.get("actual_end") or shift_info.get("end_datetime")
+		if shift_end and get_datetime(shift_end) > now:
+			return shift_end
+		# Shift end is in the past; fall through to next shift
 
-	# We're outside any shift (e.g. after today's shift ended): get next shift (forward)
+	# We're outside any shift or shift end already passed: get next shift (forward)
 	next_shift = get_employee_shift(employee, now, consider_default_shift=True, next_shift_direction="forward")
 	if next_shift:
-		return next_shift.get("actual_end") or next_shift.get("end_datetime")
+		next_end = next_shift.get("actual_end") or next_shift.get("end_datetime")
+		if next_end and get_datetime(next_end) > now:
+			return next_end
 
 	return None
 
@@ -112,6 +207,28 @@ def _resolve_assign_to(rule, context=None):
 	return None
 
 
+def _get_due_date_skipping_holidays(assign_to_user, due_days):
+	"""
+	Return due_date = today + due_days, skipping holidays so the due date falls on a working day.
+	Uses assignee's Employee holiday list if HRMS/ERPNext is available; otherwise returns add_days(today, due_days).
+	"""
+	due_days = cint(due_days or 0)
+	due_date = add_days(nowdate(), due_days)
+
+	try:
+		employee = frappe.db.get_value("Employee", {"user_id": assign_to_user}, "name", cache=True)
+		if not employee:
+			return due_date
+		from erpnext.setup.doctype.employee.employee import is_holiday
+
+		# If due_date falls on a holiday, advance to the next working day
+		while is_holiday(employee, due_date, raise_exception=False):
+			due_date = add_days(due_date, 1)
+		return due_date
+	except Exception:
+		return due_date
+
+
 def _create_task_from_rule(rule, context=None):
 	title = rule.title or _("Task")
 	description = (
@@ -128,15 +245,19 @@ def _create_task_from_rule(rule, context=None):
 	# Resolve assign_to based on assign_to_type (needed early for shift-based end_datetime)
 	assign_to = _resolve_assign_to(rule, context=context)
 
-	# Calculate end_datetime if time-based task
-	# Prefer Assign To user's Employee shift timing: end = shift end (today or tomorrow if shift already over)
+	# Calculate end_datetime if time-based task: allocate time_limit_in_minutes only within assignee's shift hours
 	end_datetime = None
 	depends_on_time = cint(rule.depends_on_time or 0)
 	if depends_on_time and rule.time_limit_in_minutes:
-		shift_end = _get_end_datetime_from_assignee_shift(assign_to)
-		end_datetime = shift_end if shift_end else add_to_date(now_datetime(), minutes=cint(rule.time_limit_in_minutes))
+		end_datetime = _get_end_datetime_from_assignee_shift_and_duration(
+			assign_to, cint(rule.time_limit_in_minutes)
+		)
+		if not end_datetime:
+			end_datetime = add_to_date(now_datetime(), minutes=cint(rule.time_limit_in_minutes))
 	if not assign_to:
 		frappe.throw(_("Could not resolve assign_to user for task rule '{0}'").format(rule.name))
+
+	due_date = _get_due_date_skipping_holidays(assign_to, cint(rule.due_days or 0))
 
 	doc = frappe.get_doc(
 		{
@@ -146,7 +267,7 @@ def _create_task_from_rule(rule, context=None):
 			"priority": rule.priority,
 			"assign_from": assign_from,
 			"assign_to": assign_to,
-			"due_date": add_days(nowdate(), cint(rule.due_days or 0)),
+			"due_date": due_date,
 			"status": "Open",
 			"task_type": "Auto",
 			"has_checklist": cint(rule.has_checklist or 0),
