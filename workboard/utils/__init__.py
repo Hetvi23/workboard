@@ -34,113 +34,144 @@ def _get_end_datetime_from_assignee_shift_and_duration(assign_to_user, time_limi
 	Rules:
 	- Task created before shift start → start counting from shift start.
 	- Task created during working hours (start–end) → start counting from now.
-	- Task created after working hours (even if still in grace period) → next working shift start.
-	- Task created on a holiday → next working shift start.
+	- Task created after working hours or on a holiday → next working day's shift start.
 	- Duration spanning multiple shifts → carry remainder to next working shift.
 
 	Returns None if no employee/shift found (caller falls back to now + time_limit_in_minutes).
 	"""
+	logger = frappe.logger("wb_task_shift", allow_site=True, max_size=5)
+
 	try:
 		from hrms.hr.doctype.shift_assignment.shift_assignment import (
 			get_actual_start_end_datetime_of_shift,
 			get_employee_shift,
 		)
 	except ImportError:
+		logger.warning("[WB Task] HRMS not installed – skipping shift-based end datetime")
 		return None
 
 	employee = frappe.db.get_value("Employee", {"user_id": assign_to_user}, "name", cache=True)
+	logger.info(f"[WB Task] assign_to_user={assign_to_user}  employee={employee}  limit_mins={time_limit_in_minutes}")
 	if not employee:
+		logger.warning(f"[WB Task] No Employee found for user {assign_to_user} – using fallback")
 		return None
 
 	now = get_datetime(now_datetime())
 	limit_mins = cint(time_limit_in_minutes) or 0
+	logger.info(f"[WB Task] now={now}  limit_mins={limit_mins}")
 	if limit_mins <= 0:
 		return None
 
 	def _shift_bounds(shift):
-		"""Return (work_start, work_end, actual_end) using nominal hours for task allocation."""
+		"""(work_start, work_end) = nominal hours; actual_end includes grace period."""
 		work_start = get_datetime(shift.get("start_datetime") or shift.get("actual_start"))
 		work_end   = get_datetime(shift.get("end_datetime")   or shift.get("actual_end"))
 		actual_end = get_datetime(shift.get("actual_end")     or shift.get("end_datetime"))
 		return work_start, work_end, actual_end
 
-	def _next_working_shift(from_dt):
+	def _shift_for_date(check_date):
 		"""
-		Find the next shift (from from_dt forward) that falls on a working day.
-		Always jumps past actual_end so we cannot re-enter the same shift via grace period.
+		Return (work_start, work_end, actual_end) for check_date, or (None,None,None).
+		Uses midnight of the date to ensure HRMS picks the right day's shift.
+		"""
+		candidate = get_datetime(str(check_date) + " 00:00:01")
+		shift = get_employee_shift(employee, candidate, consider_default_shift=True)
+		if not shift:
+			logger.info(f"[WB Task] _shift_for_date({check_date}): no shift found")
+			return None, None, None
+		ws, we, ae = _shift_bounds(shift)
+		if getdate(ws) != check_date:
+			logger.info(f"[WB Task] _shift_for_date({check_date}): shift date mismatch ws={ws}")
+			return None, None, None
+		logger.info(f"[WB Task] _shift_for_date({check_date}): ws={ws}  we={we}  ae={ae}")
+		return ws, we, ae
+
+	def _next_working_shift_from_date(start_date):
+		"""
+		Walk forward day by day from start_date until a non-holiday day with a shift is found.
 		Returns (work_start, work_end, actual_end) or (None, None, None).
 		"""
-		cursor = from_dt
-		for _ in range(366):
-			nxt = get_employee_shift(employee, cursor, consider_default_shift=True, next_shift_direction="forward")
-			if not nxt:
-				return None, None, None
-			ws, we, ae = _shift_bounds(nxt)
-			if not _is_employee_holiday(employee, getdate(ws)):
-				return ws, we, ae
-			# Skip past actual_end so we don't keep getting the same shift
-			cursor = ae + timedelta(seconds=1)
+		check_date = start_date
+		for i in range(366):
+			is_hol = _is_employee_holiday(employee, check_date)
+			logger.info(f"[WB Task] _next_working_shift day={i} check_date={check_date} holiday={is_hol}")
+			if not is_hol:
+				ws, we, ae = _shift_for_date(check_date)
+				if ws is not None:
+					logger.info(f"[WB Task] Found next working shift: ws={ws}  we={we}")
+					return ws, we, ae
+			check_date = getdate(add_days(check_date, 1))
+		logger.warning("[WB Task] _next_working_shift_from_date: exhausted 366 days without finding a working shift")
 		return None, None, None
 
 	# ── Determine effective start ─────────────────────────────────────────────
-	current_shift = get_actual_start_end_datetime_of_shift(employee, now, consider_default_shift=True)
+	today = getdate(now)
+	today_is_holiday = _is_employee_holiday(employee, today)
+	logger.info(f"[WB Task] today={today}  today_is_holiday={today_is_holiday}")
 
-	if current_shift:
-		ws, we, ae = _shift_bounds(current_shift)
-		today_is_holiday = _is_employee_holiday(employee, getdate(ws))
-
-		if today_is_holiday:
-			# Holiday: jump past actual_end of today's shift to find next working day
-			effective_start, _, _ = _next_working_shift(ae + timedelta(seconds=1))
-		elif now <= we:
-			# Within nominal working hours and not a holiday → start from now
-			effective_start = now
-		else:
-			# After nominal end (but still in grace period, e.g. 15:01–20:00)
-			# Do NOT count grace as work time; move to next working shift
-			effective_start, _, _ = _next_working_shift(ae + timedelta(seconds=1))
+	if today_is_holiday:
+		logger.info("[WB Task] Today is a holiday → looking for next working day")
+		effective_start, _, _ = _next_working_shift_from_date(getdate(add_days(today, 1)))
 	else:
-		# Completely outside any shift window → find next working shift
-		effective_start, _, _ = _next_working_shift(now)
+		ws_today, we_today, ae_today = _shift_for_date(today)
+		if ws_today is None:
+			logger.info("[WB Task] No shift for today → looking forward")
+			effective_start, _, _ = _next_working_shift_from_date(today)
+		elif now <= we_today:
+			effective_start = now if now >= ws_today else ws_today
+			logger.info(f"[WB Task] Within working hours → effective_start={effective_start}")
+		else:
+			logger.info(f"[WB Task] After working hours (now={now} > we={we_today}) → next working day")
+			effective_start, _, _ = _next_working_shift_from_date(getdate(add_days(today, 1)))
 
+	logger.info(f"[WB Task] effective_start={effective_start}")
 	if effective_start is None:
+		logger.warning("[WB Task] Could not determine effective_start – using fallback")
 		return None
 
 	# ── Allocate limit_mins across consecutive working shifts ─────────────────
 	remaining = limit_mins
 	current_time = effective_start
+	logger.info(f"[WB Task] Starting allocation: remaining={remaining}  current_time={current_time}")
 
-	for _ in range(366):
-		shift = _get_shift_for_datetime(employee, current_time)
-		if not shift:
-			return None
-		ws, we, ae = _shift_bounds(shift)
+	for iteration in range(366):
+		check_date = getdate(current_time)
 
-		# Skip holidays
-		if _is_employee_holiday(employee, getdate(ws)):
-			current_time = ae + timedelta(seconds=1)
+		if _is_employee_holiday(employee, check_date):
+			logger.info(f"[WB Task] Allocation iter={iteration}: {check_date} is holiday – skipping")
+			check_date = getdate(add_days(check_date, 1))
+			current_time = get_datetime(str(check_date) + " 00:00:00")
 			continue
 
-		# Jump to shift start if we're arriving between shifts
+		ws, we, ae = _shift_for_date(check_date)
+		if ws is None:
+			logger.info(f"[WB Task] Allocation iter={iteration}: no shift on {check_date} – skipping")
+			check_date = getdate(add_days(check_date, 1))
+			current_time = get_datetime(str(check_date) + " 00:00:00")
+			continue
+
 		if current_time < ws:
 			current_time = ws
-
-		# If somehow we arrive after work_end (grace area), move on
 		if current_time > we:
-			current_time = ae + timedelta(seconds=1)
+			logger.info(f"[WB Task] Allocation iter={iteration}: current_time {current_time} past we {we} – next day")
+			check_date = getdate(add_days(check_date, 1))
+			current_time = get_datetime(str(check_date) + " 00:00:00")
 			continue
 
 		available = (we - current_time).total_seconds() / 60
 		used = min(remaining, available)
 		remaining -= used
 		current_time = current_time + timedelta(minutes=used)
+		logger.info(f"[WB Task] Allocation iter={iteration}: date={check_date}  available={available:.1f}m  used={used:.1f}m  remaining={remaining:.1f}m  current_time={current_time}")
 
 		if remaining <= 0:
+			logger.info(f"[WB Task] Allocation complete → end_datetime={current_time}")
 			return current_time
 
-		# Move past actual_end so next call finds the following shift, not this one
-		current_time = ae + timedelta(seconds=1)
+		check_date = getdate(add_days(check_date, 1))
+		current_time = get_datetime(str(check_date) + " 00:00:00")
 
+	logger.warning("[WB Task] Allocation exhausted 366 iterations without completing – using fallback")
 	return None
 
 
