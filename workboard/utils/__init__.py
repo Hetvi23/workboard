@@ -6,22 +6,10 @@ from datetime import timedelta
 
 
 def _is_employee_holiday(employee, date):
-	"""
-	Return True if `date` is a holiday for the employee.
-	Uses Frappe DB directly (no ERPNext import dependency) so it works on any site.
-	Looks up the Employee's holiday_list; falls back to Company default_holiday_list.
-	"""
+	"""Return True if the given date is a holiday for the employee. Safe if ERPNext/HRMS not available."""
 	try:
-		holiday_list, company = frappe.db.get_value(
-			"Employee", employee, ["holiday_list", "company"]
-		) or (None, None)
-		if not holiday_list and company:
-			holiday_list = frappe.db.get_value("Company", company, "default_holiday_list")
-		if not holiday_list:
-			return False
-		return bool(
-			frappe.db.exists("Holiday", {"parent": holiday_list, "holiday_date": getdate(date)})
-		)
+		from erpnext.setup.doctype.employee.employee import is_holiday
+		return bool(is_holiday(employee, date, raise_exception=False))
 	except Exception:
 		return False
 
@@ -40,15 +28,17 @@ def _get_shift_for_datetime(employee, dt, consider_default_shift=True):
 
 def _get_end_datetime_from_assignee_shift_and_duration(assign_to_user, time_limit_in_minutes):
 	"""
-	Calculate task end_datetime by allocating time_limit_in_minutes only within the assignee's
-	shift hours (Employee > Shift). Does not count time outside shifts.
+	Allocate time_limit_in_minutes only within the assignee's nominal working hours
+	(Shift Type start_time–end_time), skipping holidays and grace periods.
 
-	- If task is created before shift start (e.g. 8:00, shift 9:00–15:30): start counting from 9:00.
-	- If task is created during shift (e.g. 10:00, shift 9:00–15:30): start counting from 10:00.
-	- If task is created after shift (e.g. 22:00): start counting from next shift start (e.g. tomorrow 9:00).
-	- If the duration does not fit in one shift, remaining time is allocated from the next working shift(s).
+	Rules:
+	- Task created before shift start → start counting from shift start.
+	- Task created during working hours (start–end) → start counting from now.
+	- Task created after working hours (even if still in grace period) → next working shift start.
+	- Task created on a holiday → next working shift start.
+	- Duration spanning multiple shifts → carry remainder to next working shift.
 
-	Returns None if HRMS not installed or employee/shift not found (caller uses now + time_limit_in_minutes).
+	Returns None if no employee/shift found (caller falls back to now + time_limit_in_minutes).
 	"""
 	try:
 		from hrms.hr.doctype.shift_assignment.shift_assignment import (
@@ -67,107 +57,91 @@ def _get_end_datetime_from_assignee_shift_and_duration(assign_to_user, time_limi
 	if limit_mins <= 0:
 		return None
 
-	# Use nominal working hours only (start_datetime/end_datetime from Shift Type),
-	# never the grace-period extensions (actual_start/actual_end) for task deadline calculation.
-	def _work_start(shift):
-		v = shift.get("start_datetime")
-		return get_datetime(v) if v else get_datetime(shift.get("actual_start"))
-	def _work_end(shift):
-		v = shift.get("end_datetime")
-		return get_datetime(v) if v else get_datetime(shift.get("actual_end"))
+	def _shift_bounds(shift):
+		"""Return (work_start, work_end, actual_end) using nominal hours for task allocation."""
+		work_start = get_datetime(shift.get("start_datetime") or shift.get("actual_start"))
+		work_end   = get_datetime(shift.get("end_datetime")   or shift.get("actual_end"))
+		actual_end = get_datetime(shift.get("actual_end")     or shift.get("end_datetime"))
+		return work_start, work_end, actual_end
 
-	# 1) Effective start: shift work start if before shift, now if during working hours, next shift work start if after.
-	#    Skip any shift that falls on a holiday (task end datetime must not be on a holiday).
+	def _next_working_shift(from_dt):
+		"""
+		Find the next shift (from from_dt forward) that falls on a working day.
+		Always jumps past actual_end so we cannot re-enter the same shift via grace period.
+		Returns (work_start, work_end, actual_end) or (None, None, None).
+		"""
+		cursor = from_dt
+		for _ in range(366):
+			nxt = get_employee_shift(employee, cursor, consider_default_shift=True, next_shift_direction="forward")
+			if not nxt:
+				return None, None, None
+			ws, we, ae = _shift_bounds(nxt)
+			if not _is_employee_holiday(employee, getdate(ws)):
+				return ws, we, ae
+			# Skip past actual_end so we don't keep getting the same shift
+			cursor = ae + timedelta(seconds=1)
+		return None, None, None
+
+	# ── Determine effective start ─────────────────────────────────────────────
 	current_shift = get_actual_start_end_datetime_of_shift(employee, now, consider_default_shift=True)
-	work_start = _work_start(current_shift) if current_shift else None
-	work_end = _work_end(current_shift) if current_shift else None
-	in_work_window = current_shift and work_start <= now <= work_end
 
-	if current_shift and not _is_employee_holiday(employee, getdate(now)) and in_work_window:
-		# We're inside working hours and today is not a holiday: start counting from now
-		effective_start = now
-	elif current_shift and _is_employee_holiday(employee, getdate(now)):
-		# Today is holiday; ignore current shift and use next working day's shift
-		cursor = _work_end(current_shift) + timedelta(seconds=1)
-		effective_start = None
-		for _ in range(366):
-			next_shift = get_employee_shift(employee, cursor, consider_default_shift=True, next_shift_direction="forward")
-			if not next_shift:
-				return None
-			ws = _work_start(next_shift)
-			if not _is_employee_holiday(employee, getdate(ws)):
-				effective_start = ws
-				break
-			cursor = _work_end(next_shift) + timedelta(seconds=1)
-		if effective_start is None:
-			return None
-	elif current_shift and not in_work_window:
-		# In shift grace period but outside work window (e.g. after 15:00): use next shift
-		cursor = work_end + timedelta(seconds=1)
-		effective_start = None
-		for _ in range(366):
-			next_shift = get_employee_shift(employee, cursor, consider_default_shift=True, next_shift_direction="forward")
-			if not next_shift:
-				return None
-			ws = _work_start(next_shift)
-			if not _is_employee_holiday(employee, getdate(ws)):
-				effective_start = ws
-				break
-			cursor = _work_end(next_shift) + timedelta(seconds=1)
-		if effective_start is None:
-			return None
+	if current_shift:
+		ws, we, ae = _shift_bounds(current_shift)
+		today_is_holiday = _is_employee_holiday(employee, getdate(ws))
+
+		if today_is_holiday:
+			# Holiday: jump past actual_end of today's shift to find next working day
+			effective_start, _, _ = _next_working_shift(ae + timedelta(seconds=1))
+		elif now <= we:
+			# Within nominal working hours and not a holiday → start from now
+			effective_start = now
+		else:
+			# After nominal end (but still in grace period, e.g. 15:01–20:00)
+			# Do NOT count grace as work time; move to next working shift
+			effective_start, _, _ = _next_working_shift(ae + timedelta(seconds=1))
 	else:
-		# Outside shift: use next shift's work start, skipping any shift that falls on a holiday
-		cursor = now
-		effective_start = None
-		for _ in range(366):
-			next_shift = get_employee_shift(employee, cursor, consider_default_shift=True, next_shift_direction="forward")
-			if not next_shift:
-				return None
-			ws = _work_start(next_shift)
-			if not _is_employee_holiday(employee, getdate(ws)):
-				effective_start = ws
-				break
-			cursor = _work_end(next_shift) + timedelta(seconds=1)
-		if effective_start is None:
-			return None
+		# Completely outside any shift window → find next working shift
+		effective_start, _, _ = _next_working_shift(now)
 
-	remaining_minutes = limit_mins
+	if effective_start is None:
+		return None
+
+	# ── Allocate limit_mins across consecutive working shifts ─────────────────
+	remaining = limit_mins
 	current_time = effective_start
-	max_days = 366
-	day_count = 0
 
-	while remaining_minutes > 0 and day_count < max_days:
-		# Get shift that contains current_time (or next shift if we're between shifts)
+	for _ in range(366):
 		shift = _get_shift_for_datetime(employee, current_time)
 		if not shift:
 			return None
-		shift_start = _work_start(shift)
-		shift_end = _work_end(shift)
+		ws, we, ae = _shift_bounds(shift)
 
-		# Skip this shift if it falls on a holiday (don't allocate task time on holidays)
-		if _is_employee_holiday(employee, getdate(shift_start)):
-			current_time = shift_end + timedelta(seconds=1)
-			day_count += 1
+		# Skip holidays
+		if _is_employee_holiday(employee, getdate(ws)):
+			current_time = ae + timedelta(seconds=1)
 			continue
 
-		# If we're before this shift (e.g. between shifts), jump to shift start
-		if current_time < shift_start:
-			current_time = shift_start
+		# Jump to shift start if we're arriving between shifts
+		if current_time < ws:
+			current_time = ws
 
-		minutes_available = max(0, (shift_end - current_time).total_seconds() / 60)
-		minutes_to_use = min(remaining_minutes, minutes_available)
-		remaining_minutes -= minutes_to_use
-		current_time = current_time + timedelta(minutes=minutes_to_use)
+		# If somehow we arrive after work_end (grace area), move on
+		if current_time > we:
+			current_time = ae + timedelta(seconds=1)
+			continue
 
-		if remaining_minutes <= 0:
+		available = (we - current_time).total_seconds() / 60
+		used = min(remaining, available)
+		remaining -= used
+		current_time = current_time + timedelta(minutes=used)
+
+		if remaining <= 0:
 			return current_time
 
-		# Move to next shift: use moment after this shift end so "forward" gives next shift
-		current_time = shift_end + timedelta(seconds=1)
-		day_count += 1
+		# Move past actual_end so next call finds the following shift, not this one
+		current_time = ae + timedelta(seconds=1)
 
-	return current_time if remaining_minutes <= 0 else None
+	return None
 
 
 def _get_end_datetime_from_assignee_shift(assign_to_user):
