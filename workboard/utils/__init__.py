@@ -5,6 +5,15 @@ from frappe.utils.safe_exec import get_safe_globals
 from datetime import timedelta
 
 
+def _is_employee_holiday(employee, date):
+	"""Return True if the given date is a holiday for the employee. Safe if ERPNext/HRMS not available."""
+	try:
+		from erpnext.setup.doctype.employee.employee import is_holiday
+		return bool(is_holiday(employee, date, raise_exception=False))
+	except Exception:
+		return False
+
+
 def _get_shift_for_datetime(employee, dt, consider_default_shift=True):
 	"""Return shift dict that contains dt, or the next shift after dt. Returns {} if none."""
 	from hrms.hr.doctype.shift_assignment.shift_assignment import (
@@ -46,19 +55,44 @@ def _get_end_datetime_from_assignee_shift_and_duration(assign_to_user, time_limi
 	if limit_mins <= 0:
 		return None
 
-	# 1) Effective start: shift start if before shift, now if during shift, next shift start if after shift
+	# 1) Effective start: shift start if before shift, now if during shift, next shift start if after shift.
+	#    Skip any shift that falls on a holiday (task end datetime must not be on a holiday).
 	current_shift = get_actual_start_end_datetime_of_shift(employee, now, consider_default_shift=True)
-	if current_shift:
-		# We're inside a shift: start counting from now
+	if current_shift and not _is_employee_holiday(employee, getdate(now)):
+		# We're inside a shift and today is not a holiday: start counting from now
 		effective_start = now
 		shift_end = get_datetime(current_shift.get("actual_end") or current_shift.get("end_datetime"))
-	else:
-		# Outside shift: use next shift's start
-		next_shift = get_employee_shift(employee, now, consider_default_shift=True, next_shift_direction="forward")
-		if not next_shift:
+	elif current_shift and _is_employee_holiday(employee, getdate(now)):
+		# Today is holiday; ignore current shift and use next working day's shift
+		cursor = get_datetime(current_shift.get("actual_end") or current_shift.get("end_datetime")) + timedelta(seconds=1)
+		effective_start = None
+		for _ in range(366):
+			next_shift = get_employee_shift(employee, cursor, consider_default_shift=True, next_shift_direction="forward")
+			if not next_shift:
+				return None
+			shift_start = get_datetime(next_shift.get("actual_start") or next_shift.get("start_datetime"))
+			shift_end = get_datetime(next_shift.get("actual_end") or next_shift.get("end_datetime"))
+			if not _is_employee_holiday(employee, getdate(shift_start)):
+				effective_start = shift_start
+				break
+			cursor = shift_end + timedelta(seconds=1)
+		if effective_start is None:
 			return None
-		effective_start = get_datetime(next_shift.get("actual_start") or next_shift.get("start_datetime"))
-		shift_end = get_datetime(next_shift.get("actual_end") or next_shift.get("end_datetime"))
+	else:
+		# Outside shift: use next shift's start, skipping any shift that falls on a holiday
+		cursor = now
+		for _ in range(366):
+			next_shift = get_employee_shift(employee, cursor, consider_default_shift=True, next_shift_direction="forward")
+			if not next_shift:
+				return None
+			shift_start = get_datetime(next_shift.get("actual_start") or next_shift.get("start_datetime"))
+			shift_end = get_datetime(next_shift.get("actual_end") or next_shift.get("end_datetime"))
+			if not _is_employee_holiday(employee, getdate(shift_start)):
+				effective_start = shift_start
+				break
+			cursor = shift_end + timedelta(seconds=1)
+		else:
+			return None
 
 	remaining_minutes = limit_mins
 	current_time = effective_start
@@ -72,6 +106,12 @@ def _get_end_datetime_from_assignee_shift_and_duration(assign_to_user, time_limi
 			return None
 		shift_start = get_datetime(shift.get("actual_start") or shift.get("start_datetime"))
 		shift_end = get_datetime(shift.get("actual_end") or shift.get("end_datetime"))
+
+		# Skip this shift if it falls on a holiday (don't allocate task time on holidays)
+		if _is_employee_holiday(employee, getdate(shift_start)):
+			current_time = shift_end + timedelta(seconds=1)
+			day_count += 1
+			continue
 
 		# If we're before this shift (e.g. between shifts), jump to shift start
 		if current_time < shift_start:
