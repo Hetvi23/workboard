@@ -8,7 +8,7 @@ frappe.ui.form.on('WB Task', {
   add_action_buttons(frm) {
     if (frm.is_new()) return;
 
-    // Re-Open Task - when status is Done or Completed
+    // Re-Open Task - when status is Done or Completed (Red)
     if (['Done', 'Completed'].includes(frm.doc.status)) {
       frm.add_custom_button(__('Re-Open Task'), () => {
         frappe.confirm(
@@ -23,10 +23,10 @@ frappe.ui.form.on('WB Task', {
             });
           }
         );
-      });
+      }).addClass('btn-danger');
     }
 
-    // Cancel - when status is Open or Overdue
+    // Cancel - when status is Open or Overdue (Red)
     if (['Open', 'Overdue'].includes(frm.doc.status)) {
       frm.add_custom_button(__('Cancel'), () => {
         frappe.confirm(
@@ -41,7 +41,7 @@ frappe.ui.form.on('WB Task', {
             });
           }
         );
-      });
+      }).addClass('btn-danger');
     }
 
     const current_user = frappe.session.user;
@@ -69,7 +69,7 @@ frappe.ui.form.on('WB Task', {
                 freeze_message: __('Marking as Done...'),
                 callback: () => frm.reload_doc()
               });
-            }).addClass('btn-primary');
+            }).addClass('btn-success');
           }
         }
         
@@ -97,7 +97,7 @@ frappe.ui.form.on('WB Task', {
             }).addClass('btn-success');
           }
         } else if (frm.doc.task_type === 'Auto' && ['Open', 'Overdue'].includes(frm.doc.status)) {
-          // For Auto tasks: direct completion from Open/Overdue
+          // For Auto tasks: direct completion from Open/Overdue (Green)
           frm.add_custom_button(__('Mark Completed'), () => {
             frm.call({
               method: 'mark_completed',
@@ -106,7 +106,7 @@ frappe.ui.form.on('WB Task', {
               freeze_message: __('Marking as Completed...'),
               callback: () => frm.reload_doc()
             });
-          }).addClass('btn-primary');
+          }).addClass('btn-success');
         }
       }
     });

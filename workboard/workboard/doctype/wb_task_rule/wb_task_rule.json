@@ -38,7 +38,8 @@
   "based_on",
   "reference_date",
   "days_before_or_after",
-  "value_changed"
+  "value_changed",
+  "connection_tab"
  ],
  "fields": [
   {
@@ -262,11 +263,16 @@
    "fieldname": "enabled",
    "fieldtype": "Check",
    "label": "Enabled"
+  },
+  {
+   "fieldname": "connection_tab",
+   "fieldtype": "Tab Break",
+   "label": "Connection",
+   "show_dashboard": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
- "links": [],
  "modified": "2025-08-15 17:23:27.021232",
  "modified_by": "Administrator",
  "module": "WorkBoard",
@@ -291,5 +297,12 @@
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],
- "track_changes": 1
+ "track_changes": 1,
+ "links": [
+  {
+   "link_doctype": "WB Task",
+   "link_fieldname": "wb_task_rule",
+   "group": "Reference"
+  }
+ ]
 }

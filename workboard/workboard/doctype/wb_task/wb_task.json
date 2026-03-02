@@ -26,6 +26,7 @@
   "task_completion_remark",
   "section_break_uakq",
   "task_type",
+  "wb_task_rule",
   "column_break_fmsi",
   "tab_2_tab",
   "checklist_template",
@@ -161,6 +162,13 @@
    "fieldtype": "Select",
    "label": "Task Type",
    "options": "\nManual\nAuto",
+   "read_only": 1
+  },
+  {
+   "fieldname": "wb_task_rule",
+   "fieldtype": "Link",
+   "label": "WB Task Rule",
+   "options": "WB Task Rule",
    "read_only": 1
   },
   {

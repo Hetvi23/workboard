@@ -342,6 +342,7 @@ def _create_task_from_rule(rule, context=None):
 
 	due_date = _get_due_date_skipping_holidays(assign_to, cint(rule.due_days or 0))
 
+	rule_name = rule.get("name") if isinstance(rule, dict) else rule.name
 	doc = frappe.get_doc(
 		{
 			"doctype": "WB Task",
@@ -353,6 +354,7 @@ def _create_task_from_rule(rule, context=None):
 			"due_date": due_date,
 			"status": "Open",
 			"task_type": "Auto",
+			"wb_task_rule": rule_name,
 			"has_checklist": cint(rule.has_checklist or 0),
 			"checklist_template": rule.checklist_template,
 			"depends_on_time": depends_on_time,
