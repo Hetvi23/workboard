@@ -142,6 +142,7 @@
    "fieldname": "proof_of_work",
    "fieldtype": "Attach",
    "label": "Proof of Work",
+   "permlevel": 2,
    "depends_on": "eval:doc.status != \"Cancelled\"",
    "mandatory_depends_on": "eval:doc.status in [\"Done\", \"Completed\"]"
   },
@@ -149,6 +150,7 @@
    "fieldname": "task_completion_remark",
    "fieldtype": "Text",
    "label": "Task Completion Remark",
+   "permlevel": 2,
    "depends_on": "eval:doc.status != \"Cancelled\"",
    "mandatory_depends_on": "eval:doc.status in [\"Done\", \"Completed\"]"
   },
@@ -216,6 +218,15 @@
    "email": 1,
    "export": 1,
    "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "permlevel": 2,
    "read": 1,
    "report": 1,
    "role": "System Manager",
