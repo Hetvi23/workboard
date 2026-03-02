@@ -23,7 +23,8 @@ frappe.ui.form.on('WB Task', {
             });
           }
         );
-      }).addClass('btn-danger');
+      });
+      frm.change_custom_button_type(__('Re-Open Task'), null, 'danger');
     }
 
     // Cancel - when status is Open or Overdue (Red)
@@ -41,7 +42,8 @@ frappe.ui.form.on('WB Task', {
             });
           }
         );
-      }).addClass('btn-danger');
+      });
+      frm.change_custom_button_type(__('Cancel'), null, 'danger');
     }
 
     const current_user = frappe.session.user;
@@ -58,7 +60,7 @@ frappe.ui.form.on('WB Task', {
         const has_admin_role = admin_role && frappe.user_roles.includes(admin_role);
         const only_assignee_can_complete = settings.only_assignee_can_complete;
         
-        // Mark Done button - for assignee on Open/Overdue tasks (Manual tasks)
+        // Mark Done button - for assignee on Open/Overdue tasks (Manual tasks) - Green
         if (frm.doc.task_type === 'Manual' && ['Open', 'Overdue'].includes(frm.doc.status)) {
           if (is_assignee || is_admin || has_admin_role) {
             frm.add_custom_button(__('Mark Done'), () => {
@@ -69,7 +71,8 @@ frappe.ui.form.on('WB Task', {
                 freeze_message: __('Marking as Done...'),
                 callback: () => frm.reload_doc()
               });
-            }).addClass('btn-success');
+            });
+            frm.change_custom_button_type(__('Mark Done'), null, 'success');
           }
         }
         
@@ -94,7 +97,8 @@ frappe.ui.form.on('WB Task', {
                 freeze_message: __('Marking as Completed...'),
                 callback: () => frm.reload_doc()
               });
-            }).addClass('btn-success');
+            });
+            frm.change_custom_button_type(__('Mark Completed'), null, 'success');
           }
         } else if (frm.doc.task_type === 'Auto' && ['Open', 'Overdue'].includes(frm.doc.status)) {
           // For Auto tasks: direct completion from Open/Overdue (Green)
@@ -106,7 +110,8 @@ frappe.ui.form.on('WB Task', {
               freeze_message: __('Marking as Completed...'),
               callback: () => frm.reload_doc()
             });
-          }).addClass('btn-success');
+          });
+          frm.change_custom_button_type(__('Mark Completed'), null, 'success');
         }
       }
     });
