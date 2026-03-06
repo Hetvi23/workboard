@@ -110,6 +110,29 @@ class WBTask(Document):
 		self.validate_checklist_verification()
 		self.enforce_checklist()
 		self.stamp_completion()
+		self._set_reporting_manager()
+
+	def _set_reporting_manager(self):
+		"""Set Reporting Manager from Assign To -> Employee -> Reports To (that Employee's User)."""
+		if not frappe.db.has_column("WB Task", "reporting_manager"):
+			return
+		self.reporting_manager = None
+		if not self.assign_to:
+			return
+		if not frappe.db.table_exists("Employee"):
+			return
+		# Employee where user_id = assign_to
+		emp_name = frappe.db.get_value("Employee", {"user_id": self.assign_to}, "name")
+		if not emp_name:
+			return
+		# reports_to is Link to Employee
+		reports_to_emp = frappe.db.get_value("Employee", emp_name, "reports_to")
+		if not reports_to_emp:
+			return
+		# That employee's user_id is the reporting manager
+		reporting_user = frappe.db.get_value("Employee", reports_to_emp, "user_id")
+		if reporting_user:
+			self.reporting_manager = reporting_user
 
 	def validate_overdue(self):
 		if not self.due_date or self.status in ("Done", "Completed"):
@@ -224,25 +247,17 @@ class WBTask(Document):
 			if self.status != "Done":
 				frappe.throw(_("Manual tasks must be marked as Done first before completion"))
 
-			# Check WorkBoard Settings
-			settings = get_workboard_settings()
-			only_assignee_can_complete = settings.get("only_assignee_can_complete", 0)
-			admin_role = settings.get("workboard_admin_role")
-
 			current_user = frappe.session.user
 			is_assignee = current_user == self.assign_to
 			is_assigner = current_user == self.assign_from
 			is_admin = current_user == "Administrator"
+			settings = get_workboard_settings()
+			admin_role = settings.get("workboard_admin_role")
 			has_admin_role = admin_role and admin_role in frappe.get_roles(current_user)
 
-			if only_assignee_can_complete:
-				# Only assignee or admin role can mark complete
-				if not is_assignee and not is_admin and not has_admin_role:
-					frappe.throw(_("Only the assigned user can mark this task as Completed"))
-			else:
-				# Only assigner or admin role can mark complete (approval workflow)
-				if not is_assigner and not is_admin and not has_admin_role:
-					frappe.throw(_("Only the task assigner can mark this task as Completed"))
+			# Business rule: assignee marks Done; assigner (or admin/admin-role) marks Completed
+			if not is_assigner and not is_admin and not has_admin_role:
+				frappe.throw(_("Only the task assigner can mark this task as Completed"))
 		else:
 			# For Auto tasks, allow direct completion
 			if self.status not in ("Open", "Overdue"):
@@ -298,11 +313,34 @@ class WBTask(Document):
 		self.status = "Open"
 		self.save(ignore_permissions=True)
 
+	def _can_cancel_task(self):
+		"""True if current user may cancel: Assign From = session user, or Assign From = Administrator and user is Administrator or has Role Profile = Process Coordinator."""
+		current_user = frappe.session.user
+		assign_from = self.assign_from
+		if not assign_from:
+			return False
+		if assign_from == current_user:
+			return True
+		if assign_from != "Administrator":
+			return False
+		if current_user == "Administrator":
+			return True
+		role_profile = frappe.db.get_value("User", current_user, "role_profile_name", cache=True)
+		return role_profile == "Process Coordinator"
+
 	@frappe.whitelist()
 	def cancel_task(self):
 		"""Cancel an Open or Overdue task."""
 		if self.status not in ("Open", "Overdue"):
 			frappe.throw(_("Only Open or Overdue tasks can be cancelled"))
-
+		if not self._can_cancel_task():
+			frappe.throw(
+				_("Only the assigner (Assign From) can cancel this task, or Administrator / Process Coordinator when Assign From is Administrator.")
+			)
 		self.status = "Cancelled"
 		self.save(ignore_permissions=True)
+
+	@frappe.whitelist()
+	def get_can_cancel_task(self):
+		"""Return whether the current user is allowed to see/use the Cancel button."""
+		return bool(self._can_cancel_task())

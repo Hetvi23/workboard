@@ -8,6 +8,11 @@ frappe.ui.form.on('WB Task', {
   add_action_buttons(frm) {
     if (frm.is_new()) return;
 
+    // Task Extension - open new WB Task Extension linked to this task
+    frm.add_custom_button(__('Task Extension'), () => {
+      frappe.new_doc('WB Task Extension', { wb_task_reference: frm.doc.name });
+    }, __('Create'));
+
     // Re-Open Task - when status is Done or Completed (Red)
     if (['Done', 'Completed'].includes(frm.doc.status)) {
       frm.add_custom_button(__('Re-Open Task'), () => {
@@ -27,23 +32,31 @@ frappe.ui.form.on('WB Task', {
       frm.change_custom_button_type(__('Re-Open Task'), null, 'danger');
     }
 
-    // Cancel - when status is Open or Overdue (Red)
+    // Cancel - when status is Open or Overdue (Red). Only for: Assign From = current user, or Assign From = Administrator and (Administrator or Role Profile = Process Coordinator)
     if (['Open', 'Overdue'].includes(frm.doc.status)) {
-      frm.add_custom_button(__('Cancel'), () => {
-        frappe.confirm(
-          __('Are you sure you want to cancel this task?'),
-          () => {
-            frm.call({
-              method: 'cancel_task',
-              doc: frm.doc,
-              freeze: true,
-              freeze_message: __('Cancelling task...'),
-              callback: () => frm.reload_doc()
+      frm.call({
+        method: 'get_can_cancel_task',
+        doc: frm.doc,
+        callback: (r) => {
+          if (r.message) {
+            frm.add_custom_button(__('Cancel'), () => {
+              frappe.confirm(
+                __('Are you sure you want to cancel this task?'),
+                () => {
+                  frm.call({
+                    method: 'cancel_task',
+                    doc: frm.doc,
+                    freeze: true,
+                    freeze_message: __('Cancelling task...'),
+                    callback: () => frm.reload_doc()
+                  });
+                }
+              );
+              frm.change_custom_button_type(__('Cancel'), null, 'danger');
             });
           }
-        );
+        }
       });
-      frm.change_custom_button_type(__('Cancel'), null, 'danger');
     }
 
     const current_user = frappe.session.user;
@@ -58,7 +71,6 @@ frappe.ui.form.on('WB Task', {
         const settings = r.message || {};
         const admin_role = settings.workboard_admin_role;
         const has_admin_role = admin_role && frappe.user_roles.includes(admin_role);
-        const only_assignee_can_complete = settings.only_assignee_can_complete;
         
         // Mark Done button - for assignee on Open/Overdue tasks (Manual tasks) - Green
         if (frm.doc.task_type === 'Manual' && ['Open', 'Overdue'].includes(frm.doc.status)) {
@@ -76,17 +88,12 @@ frappe.ui.form.on('WB Task', {
           }
         }
         
-        // Mark Completed button - check settings for Manual tasks
+        // Mark Completed button - Manual tasks: only assigner (or admin/admin-role) can complete
         if (frm.doc.task_type === 'Manual' && frm.doc.status === 'Done') {
           let can_mark_complete = false;
           
-          if (only_assignee_can_complete) {
-            // Only assignee or admin role can mark complete
-            can_mark_complete = is_assignee || is_admin || has_admin_role;
-          } else {
-            // Only assigner or admin role can mark complete (approval workflow)
-            can_mark_complete = is_assigner || is_admin || has_admin_role;
-          }
+          // Only assigner or admin role can mark complete (approval workflow)
+          can_mark_complete = is_assigner || is_admin || has_admin_role;
           
           if (can_mark_complete) {
             frm.add_custom_button(__('Mark Completed'), () => {

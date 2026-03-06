@@ -22,6 +22,11 @@
   "assign_from",
   "column_break_ywis",
   "assign_to",
+  "section_break_extension",
+  "new_due_date",
+  "new_end_datetime",
+  "column_break_reporting",
+  "reporting_manager",
   "proof_of_work",
   "task_completion_remark",
   "section_break_uakq",
@@ -137,6 +142,34 @@
    "label": "Assign To",
    "options": "User",
    "reqd": 1
+  },
+  {
+   "fieldname": "section_break_extension",
+   "fieldtype": "Section Break",
+   "label": "Extension & Reporting"
+  },
+  {
+   "fieldname": "new_due_date",
+   "fieldtype": "Date",
+   "label": "New Due Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "new_end_datetime",
+   "fieldtype": "Datetime",
+   "label": "New End Date & Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_reporting",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reporting_manager",
+   "fieldtype": "Link",
+   "label": "Reporting Manager",
+   "options": "User",
+   "read_only": 1
   },
   {
    "fieldname": "proof_of_work",

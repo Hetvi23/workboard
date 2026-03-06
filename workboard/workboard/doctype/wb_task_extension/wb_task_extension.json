@@ -1,0 +1,211 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2026-02-11 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "wb_task_reference",
+  "section_break_task_info",
+  "priority",
+  "reference_doctype",
+  "reference_document",
+  "column_break_info",
+  "status",
+  "due_date",
+  "task_type",
+  "depends_on_time",
+  "end_datetime",
+  "section_break_extension",
+  "extension_reason",
+  "new_due_date",
+  "column_break_new_dates",
+  "new_end_datetime",
+  "section_break_assign",
+  "description",
+  "assign_from",
+  "column_break_assign_col",
+  "assign_to"
+ ],
+ "fields": [
+  {
+   "default": "WBTE-.####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "WBTE-.####",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "wb_task_reference",
+   "fieldtype": "Link",
+   "label": "WB Task Reference",
+   "options": "WB Task",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_task_info",
+   "fieldtype": "Section Break",
+   "label": "Task Details (from WB Task)"
+  },
+  {
+   "fetch_from": "wb_task_reference.priority",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "label": "Priority",
+   "options": "\nHigh\nMedium\nLow",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "wb_task_reference.reference_doctype",
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "label": "Reference Doctype",
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "wb_task_reference.reference_document",
+   "fieldname": "reference_document",
+   "fieldtype": "Data",
+   "label": "Reference Document",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_info",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "wb_task_reference.status",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "\nOpen\nDone\nCompleted\nOverdue\nCancelled",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "wb_task_reference.due_date",
+   "fieldname": "due_date",
+   "fieldtype": "Date",
+   "label": "Due Date",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "wb_task_reference.task_type",
+   "fieldname": "task_type",
+   "fieldtype": "Select",
+   "label": "Task Type",
+   "options": "\nManual\nAuto",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fetch_from": "wb_task_reference.depends_on_time",
+   "fieldname": "depends_on_time",
+   "fieldtype": "Check",
+   "label": "Time Based Task",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "wb_task_reference.end_datetime",
+   "fieldname": "end_datetime",
+   "fieldtype": "Datetime",
+   "label": "End Date & Time",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_extension",
+   "fieldtype": "Section Break",
+   "label": "Extension"
+  },
+  {
+   "fieldname": "extension_reason",
+   "fieldtype": "Link",
+   "label": "Extension Reason",
+   "options": "Extension Reason",
+   "reqd": 1
+  },
+  {
+   "fieldname": "new_due_date",
+   "fieldtype": "Date",
+   "label": "New Due Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_new_dates",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "new_end_datetime",
+   "fieldtype": "Datetime",
+   "label": "New End Date & Time"
+  },
+  {
+   "fieldname": "section_break_assign",
+   "fieldtype": "Section Break",
+   "label": "Assignment"
+  },
+  {
+   "fetch_from": "wb_task_reference.description",
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "wb_task_reference.assign_from",
+   "fieldname": "assign_from",
+   "fieldtype": "Link",
+   "label": "Assign From",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_assign_col",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "wb_task_reference.assign_to",
+   "fieldname": "assign_to",
+   "fieldtype": "Link",
+   "label": "Assign To",
+   "options": "User",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-02-11 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "WorkBoard",
+ "name": "WB Task Extension",
+ "naming_rule": "By \"Naming Series\" field",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "cancel": 1,
+   "role": "System Manager"
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
