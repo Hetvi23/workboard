@@ -56,26 +56,46 @@ function set_verification_field_options(frm, cdt, cdn) {
 			if (r.message && r.message.length) {
 				let options = [""].concat(r.message.map(function(f) { return f.value; }));
 				
-				let df = frappe.meta.get_docfield(cdt, "verification_field", frm.doc.name);
-				if (df) {
-					df.options = options;
+				// 1. Update Frappe's standard metadata for this specific row (works in row expanded view)
+				let row_meta = frappe.meta.get_docfield(cdt, "verification_field", cdn);
+				if (row_meta) {
+					row_meta.options = options;
+				}
+
+				// 2. Update Frappe's standard metadata for the grid globally
+				let parent_meta = frappe.meta.get_docfield(cdt, "verification_field", frm.doc.name);
+				if (parent_meta) {
+					parent_meta.options = options;
 				}
 				
+				// 3. Update the actively rendered grid safely
 				if (frm.fields_dict.wb_task_checklist_template_details) {
 					let grid = frm.fields_dict.wb_task_checklist_template_details.grid;
 					if (grid) {
-						let field = grid.get_field("verification_field");
-						if (field) {
-							field.df.options = options;
+						// Note: grid.get_field returns the docfield dictionary directly
+						let grid_df = grid.get_field("verification_field");
+						if (grid_df) {
+							// No .df here, grid_df IS the df
+							grid_df.options = options; 
 						}
 						
 						if (grid.grid_rows) {
 							grid.grid_rows.forEach(gr => {
 								if (gr.doc.name === cdn) {
-									let row_field = gr.get_field("verification_field");
-									if (row_field) {
-										row_field.df.options = options;
-										row_field.refresh();
+									// Also update the specific row instance 
+									if (gr.get_field) {
+										let row_field = gr.get_field("verification_field");
+										if (row_field) {
+											// Fallback check depending on Frappe version
+											if (row_field.df) {
+												row_field.df.options = options;
+											} else {
+												row_field.options = options;
+											}
+											if (typeof row_field.refresh === "function") {
+												row_field.refresh();
+											}
+										}
 									}
 								}
 							});
