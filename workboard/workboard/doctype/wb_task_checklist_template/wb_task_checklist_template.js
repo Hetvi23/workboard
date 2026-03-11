@@ -42,15 +42,29 @@ frappe.ui.form.on("WB Task Checklist Template Details", {
 
 function set_verification_field_options(frm, cdt, cdn) {
 	let row = locals[cdt][cdn];
-	if (!row.verification_doctype) return;
+	if (!row || !row.verification_doctype) return;
 
 	frappe.call({
 		method: "workboard.utils.get_doctype_fields",
 		args: { doctype: row.verification_doctype },
 		callback: function(r) {
 			if (r.message && r.message.length) {
-				let options = r.message.map(function(f) { return f.value; });
-				frm.set_df_property("verification_field", "options", [""].concat(options), frm.doc.name, "wb_task_checklist_template_details", cdn);
+				let options = [""].concat(r.message.map(function(f) { return f.value; }));
+				
+				// Safely update the field options in the grid
+				let table_field = "wb_task_checklist_template_details";
+				let grid_field = "verification_field";
+				
+				if (frm && frm.fields_dict && frm.fields_dict[table_field]) {
+					let grid = frm.fields_dict[table_field].grid;
+					if (grid) {
+						let field = grid.get_field(grid_field);
+						if (field && field.df) {
+							field.df.options = options;
+							grid.refresh_field(grid_field);
+						}
+					}
+				}
 			}
 		}
 	});
