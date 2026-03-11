@@ -35,10 +35,10 @@
   },
   {
    "fieldname": "verification_field",
-   "fieldtype": "Data",
+   "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Verification Field",
-   "description": "Field from above doctype to check (use Select Field in row)"
+   "description": "Field from above doctype to check"
   },
   {
    "fieldname": "filter_type",
