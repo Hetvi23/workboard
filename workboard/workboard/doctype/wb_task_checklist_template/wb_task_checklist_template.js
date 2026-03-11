@@ -3,22 +3,9 @@
 
 frappe.ui.form.on("WB Task Checklist Template", {
 	refresh(frm) {
-		let table_field = "wb_task_checklist_template_details";
-		let fieldname = "verification_field";
-
-		if (frm.fields_dict && frm.fields_dict[table_field] && frm.fields_dict[table_field].grid) {
-			let grid = frm.fields_dict[table_field].grid;
-			let field = grid.get_field(fieldname);
-			if (field && field.df) {
-				field.df.fieldtype = "Select";
-				field.df.focus_select = true;
-				grid.refresh();
-			}
-		}
-
 		// Show fieldname instead of legacy DocField hash: preload map and set formatter
-		let verification_values = (frm.doc[table_field] || [])
-			.map(function(r) { return r[fieldname]; })
+		let verification_values = (frm.doc.wb_task_checklist_template_details || [])
+			.map(function(r) { return r.verification_field; })
 			.filter(Boolean);
 
 		if (verification_values.length) {
@@ -27,9 +14,9 @@ frappe.ui.form.on("WB Task Checklist Template", {
 				args: { docfield_names: verification_values },
 				callback: function(r) {
 					let map = r.message || {};
-					let grid = frm.fields_dict[table_field] && frm.fields_dict[table_field].grid;
+					let grid = frm.fields_dict.wb_task_checklist_template_details && frm.fields_dict.wb_task_checklist_template_details.grid;
 					if (grid) {
-						let field = grid.get_field(fieldname);
+						let field = grid.get_field("verification_field");
 						if (field) {
 							field.formatter = function(value) {
 								return map[value] || value;
@@ -51,11 +38,10 @@ frappe.ui.form.on("WB Task Checklist Template Details", {
 		set_verification_field_options(frm, cdt, cdn);
 	},
 	on_row_refresh: function(frm, cdt, cdn) {
-		set_verification_field_options(frm, cdt, cdn);
-	},
-	// Handle interaction in the grid
-	verification_field: function(frm, cdt, cdn) {
-		set_verification_field_options(frm, cdt, cdn);
+		// Only update options if this row is currently being edited to avoid overwriting other rows' options globally
+		if (frm.fields_dict.wb_task_checklist_template_details.grid && frm.fields_dict.wb_task_checklist_template_details.grid.grid_rows_by_docname[cdn]) {
+			set_verification_field_options(frm, cdt, cdn);
+		}
 	}
 });
 
@@ -70,13 +56,31 @@ function set_verification_field_options(frm, cdt, cdn) {
 			if (r.message && r.message.length) {
 				let options = [""].concat(r.message.map(function(f) { return f.value; }));
 				
-				// Standard way to set row-specific options
-				try {
-					if (frm && frm.set_df_property) {
-						frm.set_df_property("verification_field", "options", options, frm.doc.name, "wb_task_checklist_template_details", cdn);
+				let df = frappe.meta.get_docfield(cdt, "verification_field", frm.doc.name);
+				if (df) {
+					df.options = options;
+				}
+				
+				if (frm.fields_dict.wb_task_checklist_template_details) {
+					let grid = frm.fields_dict.wb_task_checklist_template_details.grid;
+					if (grid) {
+						let field = grid.get_field("verification_field");
+						if (field) {
+							field.df.options = options;
+						}
+						
+						if (grid.grid_rows) {
+							grid.grid_rows.forEach(gr => {
+								if (gr.doc.name === cdn) {
+									let row_field = gr.get_field("verification_field");
+									if (row_field) {
+										row_field.df.options = options;
+										row_field.refresh();
+									}
+								}
+							});
+						}
 					}
-				} catch (e) {
-					console.log("Error setting options via frm.set_df_property", e);
 				}
 			}
 		}
