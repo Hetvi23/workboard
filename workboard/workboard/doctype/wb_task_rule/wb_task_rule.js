@@ -41,6 +41,12 @@ frappe.ui.form.on('WB Task Rule', {
 			frm.set_df_property('value_changed', 'options', [''].concat(options));
 			frm.set_df_property('reference_date', 'options', get_date_change_options());
 
+			// set child table options
+			let child_table_options = $.map(fields, function (d) {
+				return d.fieldtype == 'Table' ? d.fieldname : null;
+			});
+			frm.set_df_property('reference_child_table', 'options', [''].concat(child_table_options));
+
 			// set assign_to_field options - only User link fields
 			let user_link_options = $.map(fields, function (d) {
 				return (d.fieldtype == 'Link' && d.options == 'User')
@@ -66,7 +72,8 @@ frappe.ui.form.on('WB Task Rule', {
 		frm.trigger('setup_fieldname_select')
 	},
 	reference_doctype: function (frm) {
-		frm.trigger('setup_fieldname_select')
+		frm.set_value('reference_child_table', '');
+		frm.trigger('setup_fieldname_select');
 	},
 	assign_to_type: function (frm) {
 		// Clear dependent fields when type changes

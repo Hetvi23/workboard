@@ -40,6 +40,23 @@ def create_task_for_event(doc, method):
 					continue
 			if r.condition and not frappe.safe_eval(r.condition, None, ctx):
 				continue
+
+			if r.reference_child_table and r.child_table_condition:
+				child_rows = doc.get(r.reference_child_table) or []
+				tasks_created = False
+				for row in child_rows:
+					row_ctx = ctx.copy()
+					row_ctx["row"] = row
+					if frappe.safe_eval(r.child_table_condition, None, row_ctx):
+						_create_task_from_rule(r, context=row_ctx)
+						tasks_created = True
+				if tasks_created:
+					# We already created tasks for matching rows
+					continue
+				else:
+					# No matching rows, so we don't create any task
+					continue
+
 			_create_task_from_rule(r, context=ctx)
 	except Exception:
 		frappe.log_error(title=_("WorkBoard Error"), message=frappe.get_traceback())

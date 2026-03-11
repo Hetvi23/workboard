@@ -5,7 +5,7 @@
  "creation": "2025-08-15 12:31:55.533409",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": [
+  "field_order": [
   "title",
   "priority",
   "has_checklist",
@@ -33,7 +33,9 @@
   "month_of_year",
   "event_settings_tab",
   "reference_doctype",
+  "reference_child_table",
   "condition",
+  "child_table_condition",
   "column_break_uhuf",
   "based_on",
   "reference_date",
@@ -215,9 +217,22 @@
    "options": "DocType"
   },
   {
+   "depends_on": "event",
+   "fieldname": "reference_child_table",
+   "fieldtype": "Select",
+   "label": "Reference Child Table"
+  },
+  {
    "fieldname": "condition",
    "fieldtype": "Code",
    "label": "Condition"
+  },
+  {
+   "depends_on": "eval:doc.event && doc.reference_child_table",
+   "description": "Condition evaluated for each row in the selected child table. Rule triggers if AT LEAST ONE row matches.",
+   "fieldname": "child_table_condition",
+   "fieldtype": "Code",
+   "label": "Child Table Condition"
   },
   {
    "fieldname": "column_break_uhuf",

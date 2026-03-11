@@ -66,6 +66,21 @@ def _run_offset_rules():
 				ctx = _context(ref_doc)
 				if r.condition and not frappe.safe_eval(r.condition, None, ctx):
 					continue
+
+				if r.reference_child_table and r.child_table_condition:
+					child_rows = ref_doc.get(r.reference_child_table) or []
+					tasks_created = False
+					for row in child_rows:
+						row_ctx = ctx.copy()
+						row_ctx["row"] = row
+						if frappe.safe_eval(r.child_table_condition, None, row_ctx):
+							_create_task_from_rule(r, context=row_ctx)
+							tasks_created = True
+					if tasks_created:
+						continue
+					else:
+						continue
+
 				_create_task_from_rule(r, context=ctx)
 			except Exception:
 				frappe.log_error(title=_("WorkBoard Error"), message=frappe.get_traceback())
