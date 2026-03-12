@@ -47,13 +47,16 @@ frappe.ui.form.on('WB Task Rule', {
 			});
 			frm.set_df_property('reference_child_table', 'options', [''].concat(child_table_options));
 
-			// set assign_to_field options - only User link fields
-			let user_link_options = $.map(fields, function (d) {
-				return (d.fieldtype == 'Link' && d.options == 'User')
-					? get_select_options(d)
-					: null;
-			});
-			frm.set_df_property('assign_to_field', 'options', [''].concat(user_link_options));
+			// set assign_to_field options - User link fields + owner (Created By) which every doc has
+				let user_link_options = $.map(fields, function (d) {
+					return (d.fieldtype == 'Link' && d.options == 'User')
+						? get_select_options(d)
+						: null;
+				});
+
+				// Always include owner (Created By) — system field present on every Frappe document
+				const ownerOption = { value: 'owner', label: 'owner (Created By)' };
+				frm.set_df_property('assign_to_field', 'options', ['', ownerOption].concat(user_link_options));
 
 
 		});

@@ -391,20 +391,44 @@ def get_workboard_settings():
 def get_doctype_fields(doctype):
 	"""
 	Return list of { value: fieldname, label: label or fieldname } for the given doctype.
+	Includes both standard fields (DocField) and custom fields (Custom Field).
 	Used so Verification Field can show and store fieldname instead of DocField hash.
 	"""
 	if not doctype or not frappe.db.exists("DocType", doctype):
 		return []
-	fields = frappe.get_all(
+
+	# Standard fields
+	standard = frappe.get_all(
 		"DocField",
 		filters={"parent": doctype, "parenttype": "DocType"},
-		fields=["fieldname", "label"],
+		fields=["fieldname", "label", "idx"],
 		order_by="idx",
 	)
+
+	# Custom fields added on this doctype
+	custom = frappe.get_all(
+		"Custom Field",
+		filters={"dt": doctype},
+		fields=["fieldname", "label"],
+		order_by="label",
+	)
+	for cf in custom:
+		cf["idx"] = 9999  # sort custom fields after standard fields
+
+	# Merge, deduplicate by fieldname
+	seen = {}
+	for f in standard:
+		seen[f["fieldname"]] = f
+	for f in custom:
+		seen[f["fieldname"]] = f
+
+	all_fields = sorted(seen.values(), key=lambda f: (f["idx"], f.get("label") or f["fieldname"]))
+
 	return [
-		{"value": f["fieldname"], "label": (f.get("label") or f["fieldname"]) or f["fieldname"]}
-		for f in fields
+		{"value": f["fieldname"], "label": (f.get("label") or f["fieldname"])}
+		for f in all_fields
 	]
+
 
 
 @frappe.whitelist()
