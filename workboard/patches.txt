@@ -4,5 +4,6 @@
 
 [post_model_sync]
 execute:from workboard.patches.v15_0.add_wb_task_rule_doctype_link import execute; execute()
+execute:from workboard.patches.v15_0.dedupe_wb_tasks_after_child_rule_fix import execute; execute()
 # Patches added in this section will be executed after doctypes are migrated
 workboard.workboard.patches.v15_0.set_wb_task_permlevel_property_setters
