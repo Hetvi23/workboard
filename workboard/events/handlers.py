@@ -59,39 +59,39 @@ def create_task_for_event(doc, method):
 					frappe.logger("wb_task_rule").info(f"[WBRule]   SKIP: condition is False")
 					continue
 
-		if r.reference_child_table and r.child_table_condition:
-			child_rows = doc.get(r.reference_child_table) or []
-			# For Save/Submit/Cancel, the in-memory doc may not have the child table
-			# populated if it was not sent as part of the form payload. Fall back to DB.
-			if not child_rows and event in ("Save", "Submit", "Cancel"):
-				try:
-					child_field = frappe.get_meta(doc.doctype).get_field(r.reference_child_table)
-					if child_field:
-						child_rows = frappe.get_all(
-							child_field.options,
-							filters={"parent": doc.name, "parenttype": doc.doctype, "parentfield": r.reference_child_table},
-							fields=["*"],
-						)
-				except Exception as e:
-					frappe.logger("wb_task_rule").info(f"[WBRule]   child_table DB fallback ERROR: {e}")
-			frappe.logger("wb_task_rule").info(
-				f"[WBRule]   child_table={r.reference_child_table} rows={len(child_rows)} condition={r.child_table_condition!r}"
-			)
-			tasks_created = False
-			for i, row in enumerate(child_rows):
-				row_ctx = ctx.copy()
-				row_ctx["row"] = row
-				try:
-					row_result = frappe.safe_eval(r.child_table_condition, None, row_ctx)
-				except Exception as e:
-					frappe.logger("wb_task_rule").info(f"[WBRule]   row[{i}] condition ERROR: {e}")
-					continue
-				frappe.logger("wb_task_rule").info(f"[WBRule]   row[{i}] result={row_result}")
-				if row_result:
-					_create_task_from_rule(r, context=row_ctx)
-					tasks_created = True
-			frappe.logger("wb_task_rule").info(f"[WBRule]   tasks_created={tasks_created}")
-			continue
+			if r.reference_child_table and r.child_table_condition:
+				child_rows = doc.get(r.reference_child_table) or []
+				# For Save/Submit/Cancel, the in-memory doc may not have the child table
+				# populated if it was not sent as part of the form payload. Fall back to DB.
+				if not child_rows and event in ("Save", "Submit", "Cancel"):
+					try:
+						child_field = frappe.get_meta(doc.doctype).get_field(r.reference_child_table)
+						if child_field:
+							child_rows = frappe.get_all(
+								child_field.options,
+								filters={"parent": doc.name, "parenttype": doc.doctype, "parentfield": r.reference_child_table},
+								fields=["*"],
+							)
+					except Exception as e:
+						frappe.logger("wb_task_rule").info(f"[WBRule]   child_table DB fallback ERROR: {e}")
+				frappe.logger("wb_task_rule").info(
+					f"[WBRule]   child_table={r.reference_child_table} rows={len(child_rows)} condition={r.child_table_condition!r}"
+				)
+				tasks_created = False
+				for i, row in enumerate(child_rows):
+					row_ctx = ctx.copy()
+					row_ctx["row"] = row
+					try:
+						row_result = frappe.safe_eval(r.child_table_condition, None, row_ctx)
+					except Exception as e:
+						frappe.logger("wb_task_rule").info(f"[WBRule]   row[{i}] condition ERROR: {e}")
+						continue
+					frappe.logger("wb_task_rule").info(f"[WBRule]   row[{i}] result={row_result}")
+					if row_result:
+						_create_task_from_rule(r, context=row_ctx)
+						tasks_created = True
+				frappe.logger("wb_task_rule").info(f"[WBRule]   tasks_created={tasks_created}")
+				continue
 
 			frappe.logger("wb_task_rule").info(f"[WBRule]   Creating task (no child table condition)")
 			_create_task_from_rule(r, context=ctx)
