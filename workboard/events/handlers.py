@@ -59,11 +59,25 @@ def create_task_for_event(doc, method):
 					frappe.logger("wb_task_rule").info(f"[WBRule]   SKIP: condition is False")
 					continue
 
-			if r.reference_child_table and r.child_table_condition:
-				child_rows = doc.get(r.reference_child_table) or []
-				frappe.logger("wb_task_rule").info(
-					f"[WBRule]   child_table={r.reference_child_table} rows={len(child_rows)} condition={r.child_table_condition!r}"
-				)
+		if r.reference_child_table and r.child_table_condition:
+			child_rows = doc.get(r.reference_child_table) or []
+			# For Save/Submit/Cancel, the in-memory doc may not have the child table
+			# populated if it was not sent as part of the form payload (e.g. read-only
+			# child tables, or docs constructed server-side). Fall back to a DB fetch.
+			if not child_rows and event in ("Save", "Submit", "Cancel"):
+				try:
+					child_doctype = frappe.get_meta(doc.doctype).get_field(r.reference_child_table)
+					if child_doctype:
+						child_rows = frappe.get_all(
+							child_doctype.options,
+							filters={"parent": doc.name, "parenttype": doc.doctype, "parentfield": r.reference_child_table},
+							fields=["*"],
+						)
+				except Exception as e:
+					frappe.logger("wb_task_rule").info(f"[WBRule]   child_table DB fallback ERROR: {e}")
+			frappe.logger("wb_task_rule").info(
+				f"[WBRule]   child_table={r.reference_child_table} rows={len(child_rows)} condition={r.child_table_condition!r}"
+			)
 				tasks_created = False
 				for i, row in enumerate(child_rows):
 					row_ctx = ctx.copy()
