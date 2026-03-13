@@ -11,6 +11,7 @@ def create_task_for_event(doc, method):
 			(frappe.flags.in_import and frappe.flags.mute_emails)
 			or frappe.flags.in_patch
 			or frappe.flags.in_install
+			or frappe.flags.in_migrate
 		):
 			return
 		event = _map_method_to_based_on(doc, method)
@@ -33,8 +34,17 @@ def create_task_for_event(doc, method):
 
 		if not rules:
 			return
+
+		# Deduplicate: skip if a task was already created for this doc+rule in this request
+		# (prevents double-firing when both after_save and on_change match the same rule condition)
+		created_key = f"_wb_task_created_{doc.doctype}_{doc.name}"
+		already_created = frappe.flags.get(created_key) or set()
+
 		ctx = _context(doc)
 		for r in rules:
+			if r.name in already_created:
+				frappe.logger("wb_task_rule").info(f"[WBRule] SKIP (already created this request): rule={r.name}")
+				continue
 			frappe.logger("wb_task_rule").info(f"[WBRule] Evaluating rule={r.name}")
 
 			if event == "Value Change":
@@ -87,14 +97,18 @@ def create_task_for_event(doc, method):
 						frappe.logger("wb_task_rule").info(f"[WBRule]   row[{i}] condition ERROR: {e}")
 						continue
 					frappe.logger("wb_task_rule").info(f"[WBRule]   row[{i}] result={row_result}")
-					if row_result:
-						_create_task_from_rule(r, context=row_ctx)
-						tasks_created = True
-				frappe.logger("wb_task_rule").info(f"[WBRule]   tasks_created={tasks_created}")
-				continue
+				if row_result:
+					_create_task_from_rule(r, context=row_ctx)
+					tasks_created = True
+					already_created.add(r.name)
+					frappe.flags[created_key] = already_created
+			frappe.logger("wb_task_rule").info(f"[WBRule]   tasks_created={tasks_created}")
+			continue
 
-			frappe.logger("wb_task_rule").info(f"[WBRule]   Creating task (no child table condition)")
-			_create_task_from_rule(r, context=ctx)
+		frappe.logger("wb_task_rule").info(f"[WBRule]   Creating task (no child table condition)")
+		_create_task_from_rule(r, context=ctx)
+		already_created.add(r.name)
+		frappe.flags[created_key] = already_created
 	except Exception:
 		frappe.log_error(title=_("WorkBoard Error"), message=frappe.get_traceback())
 
