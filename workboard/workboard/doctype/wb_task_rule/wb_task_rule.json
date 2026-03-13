@@ -16,6 +16,7 @@
   "assign_to",
   "assign_to_field",
   "assign_to_role",
+  "assign_to_role_profile",
   "due_days",
   "depends_on_time",
   "time_limit_in_minutes",
@@ -92,7 +93,7 @@
    "fieldname": "assign_to_type",
    "fieldtype": "Select",
    "label": "Assign To Type",
-   "options": "\nUser\nField\nRole",
+   "options": "\nUser\nField\nRole\nRole Profile",
    "reqd": 1
   },
   {
@@ -119,6 +120,15 @@
    "mandatory_depends_on": "eval:doc.assign_to_type == \"Role\"",
    "options": "Role",
    "description": "Assign task to a user with this role"
+  },
+  {
+   "depends_on": "eval:doc.assign_to_type == \"Role Profile\"",
+   "fieldname": "assign_to_role_profile",
+   "fieldtype": "Link",
+   "label": "Assign To Role Profile",
+   "mandatory_depends_on": "eval:doc.assign_to_type == \"Role Profile\"",
+   "options": "Role Profile",
+   "description": "Assign task to a user with this role profile"
   },
   {
    "depends_on": "has_checklist",

@@ -287,6 +287,33 @@ def _resolve_assign_to(rule, context=None):
 		# If no enabled users, return the first user anyway
 		return users[0].parent
 	
+	elif assign_to_type == "Role Profile":
+		# Get first active user with the specified role profile
+		role_profile = rule.get("assign_to_role_profile")
+		if not role_profile:
+			frappe.throw(_("Assign To Role Profile is required when Assign To Type is 'Role Profile'"))
+		
+		users = frappe.get_all(
+			"User",
+			filters={"role_profile_name": role_profile, "enabled": 1},
+			fields=["name"],
+			limit=1,
+		)
+		
+		if users:
+			return users[0].name
+		
+		# Fallback: allow even if user is disabled (but at least exists)
+		users = frappe.get_all(
+			"User",
+			filters={"role_profile_name": role_profile},
+			fields=["name"],
+			limit=1,
+		)
+		if not users:
+			frappe.throw(_("No user found with role profile '{0}'").format(role_profile))
+		return users[0].name
+	
 	return None
 
 

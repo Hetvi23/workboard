@@ -89,5 +89,8 @@ frappe.ui.form.on('WB Task Rule', {
 		if (frm.doc.assign_to_type != 'Role') {
 			frm.set_value('assign_to_role', '');
 		}
+		if (frm.doc.assign_to_type != 'Role Profile') {
+			frm.set_value('assign_to_role_profile', '');
+		}
 	}
 });
