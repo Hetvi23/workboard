@@ -145,6 +145,9 @@ class WBTask(Document):
 			self.status = "Open"
 
 	def enforce_checklist(self):
+		# Re-open flow intentionally resets task back to Open; skip auto-close logic there.
+		if self.flags.get("skip_checklist_auto_close"):
+			return
 		if not int(self.has_checklist or 0):
 			return
 		rows = self.get("wb_task_checklist_details") or []
@@ -306,11 +309,18 @@ class WBTask(Document):
 			log_doc = frappe.get_doc("Energy Point Log", log_name)
 			log_doc.revert(_("Task re-opened"), ignore_permissions=True)
 
+		# Reset checklist completion so validate() won't auto-switch status back
+		# to Done/Completed during this same save.
+		for row in (self.get("wb_task_checklist_details") or []):
+			if hasattr(row, "completed"):
+				row.completed = 0
+
 		self.proof_of_work = None
 		self.task_completion_remark = None
 		self.date_of_completion = None
 		self.timeliness = None
 		self.status = "Open"
+		self.flags.skip_checklist_auto_close = True
 		self.save(ignore_permissions=True)
 
 	def _can_cancel_task(self):

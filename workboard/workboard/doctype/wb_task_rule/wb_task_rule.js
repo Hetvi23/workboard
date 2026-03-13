@@ -37,8 +37,11 @@ frappe.ui.form.on('WB Task Rule', {
 					? null : get_select_options(d);
 			});
 
-			// set value changed options
-			frm.set_df_property('value_changed', 'options', [''].concat(options));
+			// set value changed options (include standard modified field as Last Edited On)
+			let value_changed_options = [''].concat(options).concat([
+				{ value: 'modified', label: `modified (${__('Last Edited On')})` }
+			]);
+			frm.set_df_property('value_changed', 'options', value_changed_options);
 			frm.set_df_property('reference_date', 'options', get_date_change_options());
 
 			// set child table options
