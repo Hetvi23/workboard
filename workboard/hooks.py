@@ -138,13 +138,6 @@ app_license = "agpl-3.0"
 # Hook on document methods and events
 
 doc_events = {
-	"*": {
-		"after_insert": "workboard.events.handlers.create_task_for_event",
-		"after_save": "workboard.events.handlers.create_task_for_event",
-		"on_submit": "workboard.events.handlers.create_task_for_event",
-		"on_cancel": "workboard.events.handlers.create_task_for_event",
-		"on_change": "workboard.events.handlers.create_task_for_event",
-	},
 	"WB Task Extension": {
 		"on_submit": "workboard.workboard.workboard.doctype.wb_task_extension.wb_task_extension.update_wb_task_on_extension_submit",
 	},
