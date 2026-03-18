@@ -65,14 +65,40 @@ function set_verification_child_table_options(frm, cdt, cdn) {
 		method: "workboard.utils.get_doctype_table_fields",
 		args: { doctype: row.verification_doctype },
 		callback: function(r) {
-			if (!r.message || !r.message.length) return;
-			let options = [""].concat(r.message.map(function(f) { return f.value; }));
+			let fields = (r && r.message) ? r.message : [];
+			let options = [""].concat(fields.map(function(f) { return f.value; }));
+
+			// 1. Update metadata for this specific row (expanded row view)
+			let row_meta = frappe.meta.get_docfield(cdt, "verification_child_table", cdn);
+			if (row_meta) row_meta.options = options;
+
+			// 2. Update metadata for the grid globally
 			let parent_meta = frappe.meta.get_docfield(cdt, "verification_child_table", frm.doc.name);
 			if (parent_meta) parent_meta.options = options;
+
+			// 3. Update actively rendered grid field and refresh this row instance
 			let grid = frm.fields_dict.wb_task_checklist_template_details && frm.fields_dict.wb_task_checklist_template_details.grid;
 			if (grid) {
 				let grid_df = grid.get_field("verification_child_table");
 				if (grid_df) grid_df.options = options;
+
+				if (grid.grid_rows) {
+					grid.grid_rows.forEach(gr => {
+						if (gr.doc.name === cdn && gr.get_field) {
+							let row_field = gr.get_field("verification_child_table");
+							if (row_field) {
+								if (row_field.df) {
+									row_field.df.options = options;
+								} else {
+									row_field.options = options;
+								}
+								if (typeof row_field.refresh === "function") {
+									row_field.refresh();
+								}
+							}
+						}
+					});
+				}
 			}
 		}
 	});
