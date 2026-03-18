@@ -179,6 +179,7 @@ class WBTask(Document):
 				continue
 			tmpl = template_rows[i]
 			verification_doctype = getattr(tmpl, "verification_doctype", None)
+			verification_child_table = getattr(tmpl, "verification_child_table", None) or None
 			verification_field = getattr(tmpl, "verification_field", None)
 			filter_type = getattr(tmpl, "filter_type", None)
 			expected_value = getattr(tmpl, "value", None)
@@ -189,30 +190,55 @@ class WBTask(Document):
 				continue
 			if verification_doctype != ref_doctype:
 				continue
-			if not frappe.db.has_column(ref_doctype, fieldname):
-				continue
-			actual = frappe.db.get_value(ref_doctype, ref_name, fieldname)
-			if not _check_filter_match(actual, expected_value, filter_type):
-				point_no = i + 1
-				frappe.throw(
-					_("Task checklist point no {0} is not done. Kindly clear it.").format(point_no)
-				)
+
+			if verification_child_table:
+				# Verify a field on the child table: at least one row must match
+				ref_doc = frappe.get_doc(ref_doctype, ref_name)
+				table_field = ref_doc.meta.get_field(verification_child_table)
+				if not table_field or table_field.fieldtype != "Table" or not table_field.options:
+					continue
+				child_doctype = table_field.options
+				if not frappe.db.has_column(child_doctype, fieldname):
+					continue
+				child_rows = ref_doc.get(verification_child_table) or []
+				matched = False
+				for row in child_rows:
+					actual = row.get(fieldname) if hasattr(row, "get") else getattr(row, fieldname, None)
+					if _check_filter_match(actual, expected_value, filter_type):
+						matched = True
+						break
+				if not matched:
+					point_no = i + 1
+					frappe.throw(
+						_(
+							"Checklist Point No. {0}: Accepted Value – {1}. Please ensure it is correct."
+						).format(point_no, expected_value or "")
+					)
+			else:
+				# Parent doctype field
+				if not frappe.db.has_column(ref_doctype, fieldname):
+					continue
+				actual = frappe.db.get_value(ref_doctype, ref_name, fieldname)
+				if not _check_filter_match(actual, expected_value, filter_type):
+					point_no = i + 1
+					frappe.throw(
+						_(
+							"Checklist Point No. {0}: Accepted Value – {1}. Please ensure it is correct."
+						).format(point_no, expected_value or "")
+					)
 
 	def stamp_completion(self):
 		if self.status == "Completed":
+			# Record completion datetime so timeliness can be compared against end_datetime
 			if not self.date_of_completion:
-				self.date_of_completion = nowdate()
+				self.date_of_completion = now_datetime()
 
-			# Calculate timeliness based on whether task is time-based or not
+			# Calculate timeliness: time-based tasks use end_datetime; date-based use due_date
 			if int(self.depends_on_time or 0) and self.end_datetime:
-				# For time-based tasks, compare completion datetime with end_datetime
-				completion_datetime = (
-					now_datetime() if not self.date_of_completion else get_datetime(self.date_of_completion)
-				)
+				completion_dt = get_datetime(self.date_of_completion)
 				end_dt = get_datetime(self.end_datetime)
-				self.timeliness = "Ontime" if completion_datetime <= end_dt else "Late"
+				self.timeliness = "Ontime" if completion_dt <= end_dt else "Late"
 			elif self.due_date and self.date_of_completion:
-				# For date-based tasks, compare completion date with due_date
 				self.timeliness = (
 					"Ontime" if getdate(self.date_of_completion) <= getdate(self.due_date) else "Late"
 				)

@@ -9,6 +9,7 @@
   "checklist_item",
   "section_break_verification",
   "verification_doctype",
+  "verification_child_table",
   "verification_field",
   "filter_type",
   "value"
@@ -32,6 +33,13 @@
    "label": "Verification Doctype",
    "options": "DocType",
    "description": "Source doctype to verify (e.g. Sales Order)"
+  },
+  {
+   "fieldname": "verification_child_table",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Verification Child Table",
+   "description": "Optional. Child table field of the doctype to verify; Verification Field will list fields from this child table."
   },
   {
    "fieldname": "verification_field",

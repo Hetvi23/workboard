@@ -26,10 +26,13 @@ def _get_shift_for_datetime(employee, dt, consider_default_shift=True):
 	return get_employee_shift(employee, dt, consider_default_shift, next_shift_direction="forward") or {}
 
 
-def _get_end_datetime_from_assignee_shift_and_duration(assign_to_user, time_limit_in_minutes):
+def _get_end_datetime_from_assignee_shift_and_duration(assign_to_user, time_limit_in_minutes, reference_datetime=None):
 	"""
 	Allocate time_limit_in_minutes only within the assignee's nominal working hours
 	(Shift Type start_time–end_time), skipping holidays and grace periods.
+
+	If reference_datetime is given, allocation starts from that time (e.g. start of next working day).
+	Otherwise uses current time.
 
 	Rules:
 	- Task created before shift start → start counting from shift start.
@@ -56,7 +59,7 @@ def _get_end_datetime_from_assignee_shift_and_duration(assign_to_user, time_limi
 		logger.warning(f"[WB Task] No Employee found for user {assign_to_user} – using fallback")
 		return None
 
-	now = get_datetime(now_datetime())
+	now = get_datetime(reference_datetime) if reference_datetime is not None else get_datetime(now_datetime())
 	limit_mins = cint(time_limit_in_minutes) or 0
 	logger.info(f"[WB Task] now={now}  limit_mins={limit_mins}")
 	if limit_mins <= 0:
@@ -339,6 +342,61 @@ def _get_due_date_skipping_holidays(assign_to_user, due_days):
 		return due_date
 
 
+def _get_next_working_day(assign_to_user, from_date):
+	"""Return the first working day (non-holiday) on or after from_date + 1 day."""
+	next_date = add_days(from_date, 1)
+	try:
+		employee = frappe.db.get_value("Employee", {"user_id": assign_to_user}, "name", cache=True)
+		if not employee:
+			return next_date
+		from erpnext.setup.doctype.employee.employee import is_holiday
+		while is_holiday(employee, next_date, raise_exception=False):
+			next_date = add_days(next_date, 1)
+		return next_date
+	except Exception:
+		return next_date
+
+
+def get_effective_working_minutes_per_day(assign_to_user):
+	"""
+	Return effective working minutes per day for the assignee (e.g. 480 for 8 hours).
+	Uses HRMS shift for today if available (shift end - start in minutes), else 480.
+	"""
+	try:
+		employee = frappe.db.get_value("Employee", {"user_id": assign_to_user}, "name", cache=True)
+		if not employee:
+			return 480
+		from hrms.hr.doctype.shift_assignment.shift_assignment import get_employee_shift
+		today = getdate(now_datetime())
+		candidate = get_datetime(str(today) + " 00:00:01")
+		shift = get_employee_shift(employee, candidate, consider_default_shift=True)
+		if not shift:
+			return 480
+		ws = get_datetime(shift.get("start_datetime") or shift.get("actual_start"))
+		we = get_datetime(shift.get("end_datetime") or shift.get("actual_end"))
+		if ws and we:
+			return int((we - ws).total_seconds() / 60)
+		return 480
+	except Exception:
+		return 480
+
+
+def _get_used_task_duration_minutes(assign_to_user, due_date):
+	"""Sum of task_time_duration_minutes for WB Tasks assigned to assign_to_user with this due_date (any status)."""
+	if not frappe.db.has_column("WB Task", "task_time_duration_minutes"):
+		return 0
+	result = frappe.db.sql(
+		"""
+		SELECT COALESCE(SUM(task_time_duration_minutes), 0)
+		FROM `tabWB Task`
+		WHERE assign_to = %(assign_to)s AND due_date = %(due_date)s
+		""",
+		{"assign_to": assign_to_user, "due_date": due_date},
+		as_dict=False,
+	)
+	return cint(result[0][0]) if result else 0
+
+
 def _create_task_from_rule(rule, context=None):
 	title = rule.title or _("Task")
 	description = (
@@ -354,40 +412,52 @@ def _create_task_from_rule(rule, context=None):
 
 	# Resolve assign_to based on assign_to_type (needed early for shift-based end_datetime)
 	assign_to = _resolve_assign_to(rule, context=context)
-
-	# Calculate end_datetime if time-based task: allocate time_limit_in_minutes only within assignee's shift hours
-	end_datetime = None
-	depends_on_time = cint(rule.depends_on_time or 0)
-	if depends_on_time and rule.time_limit_in_minutes:
-		end_datetime = _get_end_datetime_from_assignee_shift_and_duration(
-			assign_to, cint(rule.time_limit_in_minutes)
-		)
-		if not end_datetime:
-			end_datetime = add_to_date(now_datetime(), minutes=cint(rule.time_limit_in_minutes))
 	if not assign_to:
 		frappe.throw(_("Could not resolve assign_to user for task rule '{0}'").format(rule.name))
 
 	due_date = _get_due_date_skipping_holidays(assign_to, cint(rule.due_days or 0))
+	task_duration_mins = cint(rule.get("task_time_duration_minutes") if isinstance(rule, dict) else getattr(rule, "task_time_duration_minutes", None) or 0)
+
+	# Capacity-based scheduling: if rule has task time duration, cap today's workload and push overflow to next day
+	if task_duration_mins > 0:
+		effective_mins = get_effective_working_minutes_per_day(assign_to)
+		used_on_due = _get_used_task_duration_minutes(assign_to, due_date)
+		if used_on_due + task_duration_mins > effective_mins:
+			due_date = _get_next_working_day(assign_to, due_date)
+
+	# Calculate end_datetime if time-based task: allocate time_limit_in_minutes only within assignee's shift hours
+	end_datetime = None
+	depends_on_time = cint(rule.depends_on_time or 0)
+	ref_dt_for_end = None
+	if due_date and due_date != getdate(now_datetime()):
+		ref_dt_for_end = get_datetime(str(due_date) + " 00:00:01")
+	if depends_on_time and rule.time_limit_in_minutes:
+		end_datetime = _get_end_datetime_from_assignee_shift_and_duration(
+			assign_to, cint(rule.time_limit_in_minutes), reference_datetime=ref_dt_for_end
+		)
+		if not end_datetime:
+			end_datetime = add_to_date(now_datetime(), minutes=cint(rule.time_limit_in_minutes))
 
 	rule_name = rule.get("name") if isinstance(rule, dict) else rule.name
-	doc = frappe.get_doc(
-		{
-			"doctype": "WB Task",
-			"title": title,
-			"description": description,
-			"priority": rule.priority,
-			"assign_from": assign_from,
-			"assign_to": assign_to,
-			"due_date": due_date,
-			"status": "Open",
-			"task_type": "Auto",
-			"wb_task_rule": rule_name,
-			"has_checklist": cint(rule.has_checklist or 0),
-			"checklist_template": rule.checklist_template,
-			"depends_on_time": depends_on_time,
-			"end_datetime": end_datetime,
-		}
-	)
+	doc_dict = {
+		"doctype": "WB Task",
+		"title": title,
+		"description": description,
+		"priority": rule.priority,
+		"assign_from": assign_from,
+		"assign_to": assign_to,
+		"due_date": due_date,
+		"status": "Open",
+		"task_type": "Auto",
+		"wb_task_rule": rule_name,
+		"has_checklist": cint(rule.has_checklist or 0),
+		"checklist_template": rule.checklist_template,
+		"depends_on_time": depends_on_time,
+		"end_datetime": end_datetime,
+	}
+	if frappe.db.has_column("WB Task", "task_time_duration_minutes"):
+		doc_dict["task_time_duration_minutes"] = task_duration_mins
+	doc = frappe.get_doc(doc_dict)
 	# Set reference doctype/document when task is created from an event (context has the triggering doc)
 	if context and context.get("doc"):
 		ref_doc = context["doc"]
@@ -415,14 +485,37 @@ def get_workboard_settings():
 
 
 @frappe.whitelist()
-def get_doctype_fields(doctype):
+def get_doctype_table_fields(doctype):
 	"""
-	Return list of { value: fieldname, label: label or fieldname } for the given doctype.
-	Includes both standard fields (DocField) and custom fields (Custom Field).
-	Used so Verification Field can show and store fieldname instead of DocField hash.
+	Return list of { value: fieldname, label: label or fieldname } for Table-type fields
+	of the given doctype. Used to populate Verification Child Table dropdown.
 	"""
 	if not doctype or not frappe.db.exists("DocType", doctype):
 		return []
+	meta = frappe.get_meta(doctype)
+	return [
+		{"value": df.fieldname, "label": df.label or df.fieldname}
+		for df in (meta.get("fields") or [])
+		if df.fieldtype == "Table"
+	]
+
+
+@frappe.whitelist()
+def get_doctype_fields(doctype, child_table_fieldname=None):
+	"""
+	Return list of { value: fieldname, label: label or fieldname } for the given doctype.
+	If child_table_fieldname is set, returns fields of the child doctype (table's options).
+	Includes both standard and custom fields.
+	"""
+	if not doctype or not frappe.db.exists("DocType", doctype):
+		return []
+	if child_table_fieldname:
+		meta = frappe.get_meta(doctype)
+		table_field = meta.get_field(child_table_fieldname)
+		if table_field and table_field.fieldtype == "Table" and table_field.options:
+			doctype = table_field.options
+		else:
+			return []
 
 	# Standard fields
 	standard = frappe.get_all(

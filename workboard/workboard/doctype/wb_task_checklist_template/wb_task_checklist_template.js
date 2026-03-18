@@ -32,18 +32,51 @@ frappe.ui.form.on("WB Task Checklist Template", {
 
 frappe.ui.form.on("WB Task Checklist Template Details", {
 	verification_doctype: function(frm, cdt, cdn) {
+		let row = locals[cdt][cdn];
+		if (row) {
+			row.verification_child_table = "";
+			row.verification_field = "";
+		}
+		set_verification_child_table_options(frm, cdt, cdn);
+		set_verification_field_options(frm, cdt, cdn);
+	},
+	verification_child_table: function(frm, cdt, cdn) {
+		let row = locals[cdt][cdn];
+		if (row) row.verification_field = "";
 		set_verification_field_options(frm, cdt, cdn);
 	},
 	form_render: function(frm, cdt, cdn) {
+		set_verification_child_table_options(frm, cdt, cdn);
 		set_verification_field_options(frm, cdt, cdn);
 	},
 	on_row_refresh: function(frm, cdt, cdn) {
-		// Only update options if this row is currently being edited to avoid overwriting other rows' options globally
 		if (frm.fields_dict.wb_task_checklist_template_details.grid && frm.fields_dict.wb_task_checklist_template_details.grid.grid_rows_by_docname[cdn]) {
+			set_verification_child_table_options(frm, cdt, cdn);
 			set_verification_field_options(frm, cdt, cdn);
 		}
 	}
 });
+
+function set_verification_child_table_options(frm, cdt, cdn) {
+	let row = locals[cdt][cdn];
+	if (!row || !row.verification_doctype) return;
+
+	frappe.call({
+		method: "workboard.utils.get_doctype_table_fields",
+		args: { doctype: row.verification_doctype },
+		callback: function(r) {
+			if (!r.message || !r.message.length) return;
+			let options = [""].concat(r.message.map(function(f) { return f.value; }));
+			let parent_meta = frappe.meta.get_docfield(cdt, "verification_child_table", frm.doc.name);
+			if (parent_meta) parent_meta.options = options;
+			let grid = frm.fields_dict.wb_task_checklist_template_details && frm.fields_dict.wb_task_checklist_template_details.grid;
+			if (grid) {
+				let grid_df = grid.get_field("verification_child_table");
+				if (grid_df) grid_df.options = options;
+			}
+		}
+	});
+}
 
 function set_verification_field_options(frm, cdt, cdn) {
 	let row = locals[cdt][cdn];
@@ -51,7 +84,10 @@ function set_verification_field_options(frm, cdt, cdn) {
 
 	frappe.call({
 		method: "workboard.utils.get_doctype_fields",
-		args: { doctype: row.verification_doctype },
+		args: {
+			doctype: row.verification_doctype,
+			child_table_fieldname: row.verification_child_table || null
+		},
 		callback: function(r) {
 			if (r.message && r.message.length) {
 				let options = [""].concat(r.message.map(function(f) { return f.value; }));

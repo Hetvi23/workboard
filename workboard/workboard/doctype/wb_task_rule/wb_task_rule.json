@@ -9,6 +9,7 @@
   "title",
   "priority",
   "has_checklist",
+  "task_time_duration_minutes",
   "checklist_template",
   "column_break_xnrz",
   "assign_from",
@@ -65,6 +66,13 @@
    "fieldname": "has_checklist",
    "fieldtype": "Check",
    "label": "Has Checklist"
+  },
+  {
+   "description": "Enter the actual time required to complete each task. This will help the system calculate the total daily work capacity and assign tasks accordingly based on the available workload capacity.",
+   "fieldname": "task_time_duration_minutes",
+   "fieldtype": "Int",
+   "label": "Task Time Duration (Minutes)",
+   "non_negative": 1
   },
   {
    "fieldname": "column_break_xnrz",
