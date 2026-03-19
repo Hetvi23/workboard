@@ -11,11 +11,11 @@ frappe.ui.form.on('WB Task Rule', {
 		frappe.model.with_doctype(frm.doc.reference_doctype, function () {
 			let get_select_options = function (df, parent_field) {
 				// Append parent_field name along with fieldname for child table fields
-				let select_value = parent_field ? df.fieldname + ',' + parent_field : df.fieldname;
+				let select_value = parent_field ? parent_field + '.' + df.fieldname : df.fieldname;
 
 				return {
 					value: select_value,
-					label: df.fieldname + ' (' + __(df.label) + ')'
+					label: select_value + ' (' + __(df.label) + ')'
 				};
 			};
 			let get_date_change_options = function() {
@@ -37,11 +37,27 @@ frappe.ui.form.on('WB Task Rule', {
 					? null : get_select_options(d);
 			});
 
+			// If a reference child table is selected, include its fields in Value Changed options
+			let child_value_changed_options = [];
+			if (frm.doc.reference_child_table) {
+				let child_df = (fields || []).find(d => d.fieldname === frm.doc.reference_child_table && d.fieldtype === 'Table');
+				if (child_df && child_df.options) {
+					frappe.model.with_doctype(child_df.options, function () {
+						let child_fields = frappe.get_doc('DocType', child_df.options).fields || [];
+						child_value_changed_options = $.map(child_fields, function (d) {
+							return frappe.model.no_value_type.includes(d.fieldtype)
+								? null : get_select_options(d, frm.doc.reference_child_table);
+						});
+						_apply_value_changed_options(frm, options, child_value_changed_options);
+					});
+					return; // options will be applied in callback above
+				}
+			}
+
+			_apply_value_changed_options(frm, options, child_value_changed_options);
+
 			// set value changed options (include standard modified field as Last Edited On)
-			let value_changed_options = [''].concat(options).concat([
-				{ value: 'modified', label: `modified (${__('Last Edited On')})` }
-			]);
-			frm.set_df_property('value_changed', 'options', value_changed_options);
+			// (moved to helper _apply_value_changed_options)
 			frm.set_df_property('reference_date', 'options', get_date_change_options());
 
 			// set child table options
@@ -81,6 +97,10 @@ frappe.ui.form.on('WB Task Rule', {
 		frm.set_value('reference_child_table', '');
 		frm.trigger('setup_fieldname_select');
 	},
+	reference_child_table: function (frm) {
+		// Recompute value_changed options when child table selection changes
+		frm.trigger('setup_fieldname_select');
+	},
 	assign_to_type: function (frm) {
 		// Clear dependent fields when type changes
 		if (frm.doc.assign_to_type != 'User') {
@@ -97,3 +117,11 @@ frappe.ui.form.on('WB Task Rule', {
 		}
 	}
 });
+
+function _apply_value_changed_options(frm, parent_options, child_options) {
+	let value_changed_options = ['']
+		.concat(parent_options || [])
+		.concat(child_options || [])
+		.concat([{ value: 'modified', label: `modified (${__('Last Edited On')})` }]);
+	frm.set_df_property('value_changed', 'options', value_changed_options);
+}
