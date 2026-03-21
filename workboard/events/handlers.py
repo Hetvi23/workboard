@@ -1,8 +1,20 @@
 import frappe
 from frappe import _
-from frappe.utils import parse_val
+from frappe.utils import flt, parse_val
 
 from workboard.utils import _context, _create_task_from_rule
+
+
+def _child_field_val_for_compare(row, child_fieldname):
+	"""Normalize child field values so qty/amount comparisons work (Decimal vs float vs int)."""
+	val = row.get(child_fieldname) if hasattr(row, "get") else getattr(row, child_fieldname, None)
+	val = parse_val(val)
+	if val is None:
+		return None
+	try:
+		return flt(val)
+	except Exception:
+		return val
 
 
 def create_task_for_event(doc, method):
@@ -74,24 +86,7 @@ def create_task_for_event(doc, method):
 					def _get_rows_from_doc(d):
 						return (d.get(table_fieldname) or []) if d else []
 
-					def _get_rows_from_db():
-						return frappe.get_all(
-							child_doctype,
-							filters={
-								"parent": doc.name,
-								"parenttype": doc.doctype,
-								"parentfield": table_fieldname,
-							},
-							fields=["name", child_fieldname, "idx"],
-							order_by="idx asc",
-						)
-
 					current_rows = doc.get(table_fieldname) or []
-					before_rows = _get_rows_from_doc(doc_before_save)
-
-					# For safety if before_rows isn't present, load from DB
-					if doc_before_save is None or before_rows is None:
-						before_rows = _get_rows_from_db()
 
 					def _row_key(row):
 						# Prefer stable child row name; fall back to idx position
@@ -100,22 +95,29 @@ def create_task_for_event(doc, method):
 						return getattr(row, "name", None) or getattr(row, "idx", None)
 
 					def _row_val(row):
-						val = row.get(child_fieldname) if hasattr(row, "get") else getattr(row, child_fieldname, None)
-						return parse_val(val)
+						return _child_field_val_for_compare(row, child_fieldname)
 
-					before_map = { _row_key(rw): _row_val(rw) for rw in (before_rows or []) }
-					current_map = { _row_key(rw): _row_val(rw) for rw in (current_rows or []) }
-
-					# Detect row add/remove or any value change
-					changed = False
-					all_keys = set(before_map.keys()) | set(current_map.keys())
-					if len(before_map) != len(current_map):
+					# Never use DB rows as "before" state here: after save, DB already matches current — diff would be empty.
+					if doc_before_save is None:
+						frappe.logger("wb_task_rule").info(
+							f"[WBRule]   Value Change (child): doc_before_save missing for {doc.doctype}/{doc.name}; "
+							"treating as changed (cannot compare)"
+						)
 						changed = True
 					else:
-						for k in all_keys:
-							if before_map.get(k) != current_map.get(k):
-								changed = True
-								break
+						before_rows = _get_rows_from_doc(doc_before_save) or []
+						before_map = {_row_key(rw): _row_val(rw) for rw in before_rows}
+						current_map = {_row_key(rw): _row_val(rw) for rw in (current_rows or [])}
+
+						changed = False
+						all_keys = set(before_map.keys()) | set(current_map.keys())
+						if len(before_map) != len(current_map):
+							changed = True
+						else:
+							for k in all_keys:
+								if before_map.get(k) != current_map.get(k):
+									changed = True
+									break
 
 					frappe.logger("wb_task_rule").info(
 						f"[WBRule]   Value Change (child) check: field={r.value_changed} changed={changed}"
@@ -149,7 +151,8 @@ def create_task_for_event(doc, method):
 					frappe.logger("wb_task_rule").info(f"[WBRule]   SKIP: condition is False")
 					continue
 
-			if r.reference_child_table and r.child_table_condition:
+			child_cond = (r.child_table_condition or "").strip()
+			if r.reference_child_table and child_cond:
 				child_rows = doc.get(r.reference_child_table) or []
 				# For Save/Submit/Cancel, in-memory doc may not include child table rows.
 				if not child_rows and event in ("Save", "Submit", "Cancel"):
@@ -169,7 +172,7 @@ def create_task_for_event(doc, method):
 						frappe.logger("wb_task_rule").info(f"[WBRule]   child_table DB fallback ERROR: {e}")
 
 				frappe.logger("wb_task_rule").info(
-					f"[WBRule]   child_table={r.reference_child_table} rows={len(child_rows)} condition={r.child_table_condition!r}"
+					f"[WBRule]   child_table={r.reference_child_table} rows={len(child_rows)} condition={child_cond!r}"
 				)
 
 				# IMPORTANT: trigger once if any row matches (not once per matching row)
@@ -178,7 +181,7 @@ def create_task_for_event(doc, method):
 					row_ctx = ctx.copy()
 					row_ctx["row"] = row
 					try:
-						row_result = frappe.safe_eval(r.child_table_condition, None, row_ctx)
+						row_result = frappe.safe_eval(child_cond, None, row_ctx)
 					except Exception as e:
 						frappe.logger("wb_task_rule").info(f"[WBRule]   row[{i}] condition ERROR: {e}")
 						continue
