@@ -125,21 +125,22 @@ def create_task_for_event(doc, method):
 						continue
 
 				else:
+					# Parent (non–child-table) field: compare before vs after on the main document only
 					if not frappe.db.has_column(doc.doctype, r.value_changed):
 						frappe.logger("wb_task_rule").info(
 							f"[WBRule]   SKIP: value_changed field missing or not a column: {r.value_changed}"
 						)
 						continue
-				doc_before_save = doc.get_doc_before_save()
-				field_value_before_save = doc_before_save.get(r.value_changed) if doc_before_save else None
-				field_value_before_save = parse_val(field_value_before_save)
-				current_value = doc.get(r.value_changed)
-				frappe.logger("wb_task_rule").info(
-					f"[WBRule]   Value Change check: field={r.value_changed} before={field_value_before_save!r} after={current_value!r}"
-				)
-				if current_value == field_value_before_save:
-					frappe.logger("wb_task_rule").info(f"[WBRule]   SKIP: value has not changed")
-					continue
+					doc_before_save = doc.get_doc_before_save()
+					field_value_before_save = doc_before_save.get(r.value_changed) if doc_before_save else None
+					field_value_before_save = parse_val(field_value_before_save)
+					current_value = doc.get(r.value_changed)
+					frappe.logger("wb_task_rule").info(
+						f"[WBRule]   Value Change check: field={r.value_changed} before={field_value_before_save!r} after={current_value!r}"
+					)
+					if current_value == field_value_before_save:
+						frappe.logger("wb_task_rule").info(f"[WBRule]   SKIP: value has not changed")
+						continue
 
 			if r.condition:
 				result = frappe.safe_eval(r.condition, None, ctx)

@@ -18,6 +18,13 @@ frappe.ui.form.on('WB Task Rule', {
 					label: select_value + ' (' + __(df.label) + ')'
 				};
 			};
+
+			let fields = frappe.get_doc('DocType', frm.doc.reference_doctype).fields;
+			let options = $.map(fields, function (d) {
+				return frappe.model.no_value_type.includes(d.fieldtype)
+					? null : get_select_options(d);
+			});
+
 			let get_date_change_options = function() {
 				let date_options = $.map(fields, function(d) {
 					return d.fieldtype == 'Date' || d.fieldtype == 'Datetime'
@@ -31,53 +38,39 @@ frappe.ui.form.on('WB Task Rule', {
 				]);
 			};
 
-			let fields = frappe.get_doc('DocType', frm.doc.reference_doctype).fields;
-			let options = $.map(fields, function (d) {
-				return frappe.model.no_value_type.includes(d.fieldtype)
-					? null : get_select_options(d);
-			});
-
-			// If a reference child table is selected, include its fields in Value Changed options
-			let child_value_changed_options = [];
-			if (frm.doc.reference_child_table) {
-				let child_df = (fields || []).find(d => d.fieldname === frm.doc.reference_child_table && d.fieldtype === 'Table');
-				if (child_df && child_df.options) {
-					frappe.model.with_doctype(child_df.options, function () {
-						let child_fields = frappe.get_doc('DocType', child_df.options).fields || [];
-						child_value_changed_options = $.map(child_fields, function (d) {
-							return frappe.model.no_value_type.includes(d.fieldtype)
-								? null : get_select_options(d, frm.doc.reference_child_table);
-						});
-						_apply_value_changed_options(frm, options, child_value_changed_options);
-					});
-					return; // options will be applied in callback above
-				}
-			}
-
-			_apply_value_changed_options(frm, options, child_value_changed_options);
-
-			// set value changed options (include standard modified field as Last Edited On)
-			// (moved to helper _apply_value_changed_options)
+			// Always set these (must NOT be skipped when reference_child_table triggers async branch — that used to break after Save)
 			frm.set_df_property('reference_date', 'options', get_date_change_options());
 
-			// set child table options
 			let child_table_options = $.map(fields, function (d) {
 				return d.fieldtype == 'Table' ? d.fieldname : null;
 			});
 			frm.set_df_property('reference_child_table', 'options', [''].concat(child_table_options));
 
-			// set assign_to_field options - User link fields + owner (Created By) which every doc has
-				let user_link_options = $.map(fields, function (d) {
-					return (d.fieldtype == 'Link' && d.options == 'User')
-						? get_select_options(d)
-						: null;
-				});
+			let user_link_options = $.map(fields, function (d) {
+				return (d.fieldtype == 'Link' && d.options == 'User')
+					? get_select_options(d)
+					: null;
+			});
+			const ownerOption = { value: 'owner', label: 'owner (Created By)' };
+			frm.set_df_property('assign_to_field', 'options', ['', ownerOption].concat(user_link_options));
 
-				// Always include owner (Created By) — system field present on every Frappe document
-				const ownerOption = { value: 'owner', label: 'owner (Created By)' };
-				frm.set_df_property('assign_to_field', 'options', ['', ownerOption].concat(user_link_options));
+			// If a reference child table is selected, include its fields in Value Changed options (async child DocType)
+			if (frm.doc.reference_child_table) {
+				let child_df = (fields || []).find(d => d.fieldname === frm.doc.reference_child_table && d.fieldtype === 'Table');
+				if (child_df && child_df.options) {
+					frappe.model.with_doctype(child_df.options, function () {
+						let child_fields = frappe.get_doc('DocType', child_df.options).fields || [];
+						let child_value_changed_options = $.map(child_fields, function (d) {
+							return frappe.model.no_value_type.includes(d.fieldtype)
+								? null : get_select_options(d, frm.doc.reference_child_table);
+						});
+						_apply_value_changed_options(frm, options, child_value_changed_options);
+					});
+					return;
+				}
+			}
 
-
+			_apply_value_changed_options(frm, options, []);
 		});
 	},
 	onload: function (frm) {
