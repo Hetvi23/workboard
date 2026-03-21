@@ -76,6 +76,7 @@ def _run_offset_rules():
 						if frappe.safe_eval(r.child_table_condition, None, row_ctx):
 							_create_task_from_rule(r, context=row_ctx)
 							tasks_created = True
+							break
 					if tasks_created:
 						continue
 					else:

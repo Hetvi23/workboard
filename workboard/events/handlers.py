@@ -53,6 +53,20 @@ def create_task_for_event(doc, method):
 		already_created = frappe.flags.get(created_key) or set()
 
 		ctx = _context(doc)
+
+		def _create_once(rule_dict, task_ctx):
+			"""Create a single task for this rule; reserve rule id first so duplicate hooks cannot double-create."""
+			if rule_dict.name in already_created:
+				return
+			already_created.add(rule_dict.name)
+			frappe.flags[created_key] = already_created
+			try:
+				_create_task_from_rule(rule_dict, context=task_ctx)
+			except Exception:
+				already_created.discard(rule_dict.name)
+				frappe.flags[created_key] = already_created
+				raise
+
 		for r in rules:
 			if r.name in already_created:
 				frappe.logger("wb_task_rule").info(f"[WBRule] SKIP (already created this request): rule={r.name}")
@@ -188,25 +202,23 @@ def create_task_for_event(doc, method):
 
 					frappe.logger("wb_task_rule").info(f"[WBRule]   row[{i}] result={row_result}")
 					if row_result:
-						_create_task_from_rule(r, context=row_ctx)
+						_create_once(r, row_ctx)
 						tasks_created = True
-						already_created.add(r.name)
-						frappe.flags[created_key] = already_created
 						break
 
 				frappe.logger("wb_task_rule").info(f"[WBRule]   tasks_created={tasks_created}")
 				continue
 
 			frappe.logger("wb_task_rule").info(f"[WBRule]   Creating task (no child table condition)")
-			_create_task_from_rule(r, context=ctx)
-			already_created.add(r.name)
-			frappe.flags[created_key] = already_created
+			_create_once(r, ctx)
 	except Exception:
 		frappe.log_error(title=_("WorkBoard Error"), message=frappe.get_traceback())
 
 
 def _map_method_to_based_on(doc, method):
+	# Note: Frappe Document._save does not call run_method("after_save"); use on_update for "Save" rules.
 	m = {"after_insert": "New", "after_save": "Save", "on_submit": "Submit", "on_cancel": "Cancel"}
 	if not doc.flags.in_insert:
 		m["on_change"] = "Value Change"
+		m["on_update"] = "Save"
 	return m.get(method)
