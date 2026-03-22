@@ -1,16 +1,37 @@
 import frappe
 from frappe import _
-from frappe.utils import flt, parse_val
+from frappe.utils import cint, flt, parse_val
 
 from workboard.utils import _context, _create_task_from_rule
 
+# frappe.safe_eval() whitelist does not include len/cint/flt; child_table_condition often needs them.
+_WB_SAFE_EVAL_GLOBALS = {"len": len, "cint": cint, "flt": flt}
 
-def _child_field_val_for_compare(row, child_fieldname):
-	"""Normalize child field values so qty/amount comparisons work (Decimal vs float vs int)."""
+
+def _child_field_val_for_compare(row, child_fieldname, child_doctype=None):
+	"""Normalize child field values for before/after diff.
+
+	- Float/Currency/Int/Percent: flt() so 10 vs 10.0 matches.
+	- Check: cint().
+	- Select / Data / Link / other strings: stripped string (do NOT use flt — flt('Available') is 0 and breaks change detection).
+	"""
 	val = row.get(child_fieldname) if hasattr(row, "get") else getattr(row, child_fieldname, None)
 	val = parse_val(val)
 	if val is None:
 		return None
+
+	if child_doctype:
+		df = frappe.get_meta(child_doctype).get_field(child_fieldname)
+		if df:
+			if df.fieldtype == "Check":
+				return cint(val)
+			if df.fieldtype in ("Float", "Currency", "Int", "Percent"):
+				try:
+					return flt(val)
+				except Exception:
+					return val
+	if isinstance(val, str):
+		return val.strip()
 	try:
 		return flt(val)
 	except Exception:
@@ -109,7 +130,7 @@ def create_task_for_event(doc, method):
 						return getattr(row, "name", None) or getattr(row, "idx", None)
 
 					def _row_val(row):
-						return _child_field_val_for_compare(row, child_fieldname)
+						return _child_field_val_for_compare(row, child_fieldname, child_doctype)
 
 					# Never use DB rows as "before" state here: after save, DB already matches current — diff would be empty.
 					if doc_before_save is None:
@@ -159,7 +180,7 @@ def create_task_for_event(doc, method):
 						continue
 
 			if r.condition:
-				result = frappe.safe_eval(r.condition, None, ctx)
+				result = frappe.safe_eval(r.condition, dict(_WB_SAFE_EVAL_GLOBALS), ctx)
 				frappe.logger("wb_task_rule").info(f"[WBRule]   condition={r.condition!r} result={result}")
 				if not result:
 					frappe.logger("wb_task_rule").info(f"[WBRule]   SKIP: condition is False")
@@ -195,7 +216,7 @@ def create_task_for_event(doc, method):
 					row_ctx = ctx.copy()
 					row_ctx["row"] = row
 					try:
-						row_result = frappe.safe_eval(child_cond, None, row_ctx)
+						row_result = frappe.safe_eval(child_cond, dict(_WB_SAFE_EVAL_GLOBALS), row_ctx)
 					except Exception as e:
 						frappe.logger("wb_task_rule").info(f"[WBRule]   row[{i}] condition ERROR: {e}")
 						continue

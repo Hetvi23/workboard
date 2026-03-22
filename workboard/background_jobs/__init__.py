@@ -1,8 +1,10 @@
 import frappe
 from frappe import _
-from frappe.utils import add_days, add_to_date, cint, getdate, nowdate, today
+from frappe.utils import add_days, add_to_date, cint, flt, getdate, nowdate, today
 
 from workboard.utils import _context, _create_task_from_rule
+
+_WB_SAFE_EVAL_GLOBALS = {"len": len, "cint": cint, "flt": flt}
 
 
 def trigger_daily_rules():
@@ -64,7 +66,7 @@ def _run_offset_rules():
 		for ref_doc in _docs_matching_offset_window(r):
 			try:
 				ctx = _context(ref_doc)
-				if r.condition and not frappe.safe_eval(r.condition, None, ctx):
+				if r.condition and not frappe.safe_eval(r.condition, dict(_WB_SAFE_EVAL_GLOBALS), ctx):
 					continue
 
 				if r.reference_child_table and r.child_table_condition:
@@ -73,7 +75,7 @@ def _run_offset_rules():
 					for row in child_rows:
 						row_ctx = ctx.copy()
 						row_ctx["row"] = row
-						if frappe.safe_eval(r.child_table_condition, None, row_ctx):
+						if frappe.safe_eval(r.child_table_condition, dict(_WB_SAFE_EVAL_GLOBALS), row_ctx):
 							_create_task_from_rule(r, context=row_ctx)
 							tasks_created = True
 							break
