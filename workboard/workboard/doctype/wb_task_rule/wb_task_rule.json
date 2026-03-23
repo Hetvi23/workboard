@@ -10,6 +10,7 @@
   "priority",
   "has_checklist",
   "task_time_duration_minutes",
+  "buffer_time_minutes",
   "checklist_template",
   "column_break_xnrz",
   "assign_from",
@@ -72,6 +73,13 @@
    "fieldname": "task_time_duration_minutes",
    "fieldtype": "Int",
    "label": "Task Time Duration (Minutes)",
+   "non_negative": 1
+  },
+  {
+   "description": "Extra minutes allowed beyond shift capacity before moving task to next working day. If empty, default from Cruzine Setting is used.",
+   "fieldname": "buffer_time_minutes",
+   "fieldtype": "Int",
+   "label": "Buffer Time (Minutes)",
    "non_negative": 1
   },
   {

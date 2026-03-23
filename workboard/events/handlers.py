@@ -75,23 +75,20 @@ def create_task_for_event(doc, method):
 
 		ctx = _context(doc)
 
-		def _create_once(rule_dict, task_ctx):
-			"""Create a single task for this rule; reserve rule id first so duplicate hooks cannot double-create."""
-			if rule_dict.name in already_created:
+		def _create_once(rule_dict, task_ctx, task_key):
+			"""Create a WB Task. De-dupe using task_key (rule + optional child row id)."""
+			if task_key in already_created:
 				return
-			already_created.add(rule_dict.name)
+			already_created.add(task_key)
 			frappe.flags[created_key] = already_created
 			try:
 				_create_task_from_rule(rule_dict, context=task_ctx)
 			except Exception:
-				already_created.discard(rule_dict.name)
+				already_created.discard(task_key)
 				frappe.flags[created_key] = already_created
 				raise
 
 		for r in rules:
-			if r.name in already_created:
-				frappe.logger("wb_task_rule").info(f"[WBRule] SKIP (already created this request): rule={r.name}")
-				continue
 			frappe.logger("wb_task_rule").info(f"[WBRule] Evaluating rule={r.name}")
 
 			if event == "Value Change":
@@ -210,11 +207,14 @@ def create_task_for_event(doc, method):
 					f"[WBRule]   child_table={r.reference_child_table} rows={len(child_rows)} condition={child_cond!r}"
 				)
 
-				# IMPORTANT: trigger once if any row matches (not once per matching row)
-				tasks_created = False
+				# Create one task per matching child row
 				for i, row in enumerate(child_rows):
 					row_ctx = ctx.copy()
 					row_ctx["row"] = row
+					row_ctx["child_table_name"] = r.reference_child_table
+					child_row_id = row.get("name") if hasattr(row, "get") else None
+					child_row_id = child_row_id or (row.get("idx") if hasattr(row, "get") else None) or i
+					row_ctx["child_table_id"] = child_row_id
 					try:
 						row_result = frappe.safe_eval(child_cond, dict(_WB_SAFE_EVAL_GLOBALS), row_ctx)
 					except Exception as e:
@@ -223,15 +223,12 @@ def create_task_for_event(doc, method):
 
 					frappe.logger("wb_task_rule").info(f"[WBRule]   row[{i}] result={row_result}")
 					if row_result:
-						_create_once(r, row_ctx)
-						tasks_created = True
-						break
-
-				frappe.logger("wb_task_rule").info(f"[WBRule]   tasks_created={tasks_created}")
+						task_key = f"{r.name}|{r.reference_child_table}|{child_row_id}"
+						_create_once(r, row_ctx, task_key=task_key)
 				continue
 
 			frappe.logger("wb_task_rule").info(f"[WBRule]   Creating task (no child table condition)")
-			_create_once(r, ctx)
+			_create_once(r, ctx, task_key=r.name)
 	except Exception:
 		frappe.log_error(title=_("WorkBoard Error"), message=frappe.get_traceback())
 

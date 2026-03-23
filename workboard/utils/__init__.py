@@ -357,10 +357,48 @@ def _get_next_working_day(assign_to_user, from_date):
 		return next_date
 
 
+def _get_shift_lunch_break_minutes(shift):
+	"""Return lunch break minutes configured on Shift Type (custom_lunch_break_minutes)."""
+	try:
+		if not shift:
+			return 0
+
+		shift_type_name = None
+		if hasattr(shift, "get"):
+			shift_type_name = shift.get("shift_type") or shift.get("name")
+		else:
+			shift_type_name = getattr(shift, "shift_type", None) or getattr(shift, "name", None)
+
+		if not shift_type_name or not frappe.db.exists("Shift Type", shift_type_name):
+			return 0
+		if not frappe.db.has_column("Shift Type", "custom_lunch_break_minutes"):
+			return 0
+
+		return max(cint(frappe.db.get_value("Shift Type", shift_type_name, "custom_lunch_break_minutes") or 0), 0)
+	except Exception:
+		return 0
+
+
+def _get_rule_or_default_buffer_minutes(rule):
+	"""Rule buffer takes priority; fallback to Cruzine Setting default."""
+	try:
+		rule_buffer = rule.get("buffer_time_minutes") if isinstance(rule, dict) else getattr(rule, "buffer_time_minutes", None)
+		if rule_buffer not in (None, ""):
+			return max(cint(rule_buffer), 0)
+
+		if not frappe.db.exists("DocType", "Cruzine Setting"):
+			return 0
+		default_buffer = frappe.db.get_single_value("Cruzine Setting", "wb_task_buffer_time_minutes") or 0
+		return max(cint(default_buffer), 0)
+	except Exception:
+		return 0
+
+
 def get_effective_working_minutes_per_day(assign_to_user):
 	"""
-	Return effective working minutes per day for the assignee (e.g. 480 for 8 hours).
-	Uses HRMS shift for today if available (shift end - start in minutes), else 480.
+	Return effective working minutes for the assignee's current day:
+	(shift duration in minutes) - (Shift Type lunch break minutes).
+	Uses HRMS shift for today if available, else 480.
 	"""
 	try:
 		employee = frappe.db.get_value("Employee", {"user_id": assign_to_user}, "name", cache=True)
@@ -375,7 +413,9 @@ def get_effective_working_minutes_per_day(assign_to_user):
 		ws = get_datetime(shift.get("start_datetime") or shift.get("actual_start"))
 		we = get_datetime(shift.get("end_datetime") or shift.get("actual_end"))
 		if ws and we:
-			return int((we - ws).total_seconds() / 60)
+			total_mins = int((we - ws).total_seconds() / 60)
+			lunch_break_mins = _get_shift_lunch_break_minutes(shift)
+			return max(total_mins - lunch_break_mins, 0)
 		return 480
 	except Exception:
 		return 480
@@ -422,7 +462,8 @@ def _create_task_from_rule(rule, context=None):
 	if task_duration_mins > 0:
 		effective_mins = get_effective_working_minutes_per_day(assign_to)
 		used_on_due = _get_used_task_duration_minutes(assign_to, due_date)
-		if used_on_due + task_duration_mins > effective_mins:
+		buffer_mins = _get_rule_or_default_buffer_minutes(rule)
+		if used_on_due + task_duration_mins > (effective_mins + buffer_mins):
 			due_date = _get_next_working_day(assign_to, due_date)
 
 	# Calculate end_datetime if time-based task: allocate time_limit_in_minutes only within assignee's shift hours
@@ -465,6 +506,15 @@ def _create_task_from_rule(rule, context=None):
 			doc.custom_reference_doctype = ref_doc.doctype
 		if frappe.db.has_column("WB Task", "custom_reference_document"):
 			doc.custom_reference_document = ref_doc.name
+
+		# Store child-table match details when the rule has a child_table_condition.
+		# These get populated by handlers/background jobs using context["child_table_name"] and context["child_table_id"].
+		child_table_name = context.get("child_table_name")
+		child_table_id = context.get("child_table_id")
+		if child_table_name and frappe.db.has_column("WB Task", "custom_child_table_name"):
+			doc.custom_child_table_name = child_table_name
+		if child_table_id is not None and frappe.db.has_column("WB Task", "custom_child_table_id"):
+			doc.custom_child_table_id = child_table_id
 	doc.fetch_checklist()
 	doc.save(ignore_permissions=True)
 	return doc

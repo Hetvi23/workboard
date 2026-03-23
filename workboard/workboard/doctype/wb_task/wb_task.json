@@ -25,6 +25,8 @@
   "section_break_extension",
   "new_due_date",
   "new_end_datetime",
+    "custom_child_table_name",
+    "custom_child_table_id",
   "column_break_reporting",
   "reporting_manager",
   "proof_of_work",
@@ -161,6 +163,18 @@
    "label": "New End Date & Time",
    "read_only": 1
   },
+    {
+      "fieldname": "custom_child_table_name",
+      "fieldtype": "Data",
+      "label": "Child Table Name",
+      "read_only": 1
+    },
+    {
+      "fieldname": "custom_child_table_id",
+      "fieldtype": "Data",
+      "label": "Child Table Id",
+      "read_only": 1
+    },
   {
    "fieldname": "column_break_reporting",
    "fieldtype": "Column Break"

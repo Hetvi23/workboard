@@ -71,18 +71,16 @@ def _run_offset_rules():
 
 				if r.reference_child_table and r.child_table_condition:
 					child_rows = ref_doc.get(r.reference_child_table) or []
-					tasks_created = False
 					for row in child_rows:
 						row_ctx = ctx.copy()
 						row_ctx["row"] = row
+						row_ctx["child_table_name"] = r.reference_child_table
+						child_row_id = row.get("name") if hasattr(row, "get") else None
+						child_row_id = child_row_id or (row.get("idx") if hasattr(row, "get") else None) or None
+						row_ctx["child_table_id"] = child_row_id
 						if frappe.safe_eval(r.child_table_condition, dict(_WB_SAFE_EVAL_GLOBALS), row_ctx):
 							_create_task_from_rule(r, context=row_ctx)
-							tasks_created = True
-							break
-					if tasks_created:
-						continue
-					else:
-						continue
+					continue
 
 				_create_task_from_rule(r, context=ctx)
 			except Exception:
