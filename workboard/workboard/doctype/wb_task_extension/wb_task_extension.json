@@ -57,7 +57,7 @@
    "fieldname": "priority",
    "fieldtype": "Select",
    "label": "Priority",
-   "options": "\nHigh\nMedium\nLow",
+   "options": "\nHigh\nMedium\nLow\nRepeat",
    "read_only": 1
   },
   {
