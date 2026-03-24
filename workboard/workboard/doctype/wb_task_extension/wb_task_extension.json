@@ -61,7 +61,6 @@
    "read_only": 1
   },
   {
-   "fetch_from": "wb_task_reference.reference_doctype",
    "fieldname": "reference_doctype",
    "fieldtype": "Link",
    "label": "Reference Doctype",
@@ -69,7 +68,6 @@
    "read_only": 1
   },
   {
-   "fetch_from": "wb_task_reference.reference_document",
    "fieldname": "reference_document",
    "fieldtype": "Data",
    "label": "Reference Document",

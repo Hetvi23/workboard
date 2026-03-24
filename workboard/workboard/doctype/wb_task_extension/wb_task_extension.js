@@ -9,12 +9,15 @@ frappe.ui.form.on("WB Task Extension", {
 	},
 	fetch_from_wb_task(frm) {
 		if (!frm.doc.wb_task_reference) return;
-		// Use custom_reference_doctype / custom_reference_document when present (e.g. Cruzine);
-		// fallback to reference_doctype / reference_document for standard WB Task
+		// Read only fields that exist on this site's WB Task schema.
+		// Cruzine often uses custom_reference_* while some setups may have reference_*.
 		var ref_fields = ["priority", "status", "due_date", "task_type", "depends_on_time", "end_datetime", "description", "assign_from", "assign_to"];
-		if (frappe.meta.has_field("WB Task", "custom_reference_doctype")) {
+		var has_custom_ref = frappe.meta.has_field("WB Task", "custom_reference_doctype");
+		var has_std_ref = frappe.meta.has_field("WB Task", "reference_doctype");
+		if (has_custom_ref) {
 			ref_fields.push("custom_reference_doctype", "custom_reference_document");
-		} else {
+		}
+		if (has_std_ref) {
 			ref_fields.push("reference_doctype", "reference_document");
 		}
 		frappe.db.get_value(
@@ -23,8 +26,8 @@ frappe.ui.form.on("WB Task Extension", {
 			ref_fields,
 			(r) => {
 				if (!r) return;
-				var ref_doctype = r.custom_reference_doctype != null ? r.custom_reference_doctype : r.reference_doctype;
-				var ref_doc = r.custom_reference_document != null ? r.custom_reference_document : r.reference_document;
+				var ref_doctype = r.custom_reference_doctype || r.reference_doctype || "";
+				var ref_doc = r.custom_reference_document || r.reference_document || "";
 				frm.set_value({
 					priority: r.priority,
 					status: r.status,
