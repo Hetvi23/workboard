@@ -2,9 +2,18 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, add_to_date, cint, flt, getdate, nowdate, today
 
-from workboard.utils import _context, _create_task_from_rule
+from workboard.utils import _context, _create_task_from_rule, _eval_proxy
 
 _WB_SAFE_EVAL_GLOBALS = {"len": len, "cint": cint, "flt": flt}
+
+
+def _safe_eval_rule_expr(expr, ctx):
+	"""Evaluate WB Task Rule expression safely; return False on error."""
+	try:
+		return bool(frappe.safe_eval(expr, dict(_WB_SAFE_EVAL_GLOBALS), ctx))
+	except Exception:
+		frappe.log_error(title=_("WorkBoard Rule Condition Error"), message=frappe.get_traceback())
+		return False
 
 
 def trigger_daily_rules():
@@ -66,19 +75,19 @@ def _run_offset_rules():
 		for ref_doc in _docs_matching_offset_window(r):
 			try:
 				ctx = _context(ref_doc)
-				if r.condition and not frappe.safe_eval(r.condition, dict(_WB_SAFE_EVAL_GLOBALS), ctx):
+				if r.condition and not _safe_eval_rule_expr(r.condition, ctx):
 					continue
 
 				if r.reference_child_table and r.child_table_condition:
 					child_rows = ref_doc.get(r.reference_child_table) or []
 					for row in child_rows:
 						row_ctx = ctx.copy()
-						row_ctx["row"] = row
+						row_ctx["row"] = _eval_proxy(row)
 						row_ctx["child_table_name"] = r.reference_child_table
 						child_row_id = row.get("name") if hasattr(row, "get") else None
 						child_row_id = child_row_id or (row.get("idx") if hasattr(row, "get") else None) or None
 						row_ctx["child_table_id"] = child_row_id
-						if frappe.safe_eval(r.child_table_condition, dict(_WB_SAFE_EVAL_GLOBALS), row_ctx):
+						if _safe_eval_rule_expr(r.child_table_condition, row_ctx):
 							_create_task_from_rule(r, context=row_ctx)
 					continue
 

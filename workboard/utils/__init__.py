@@ -1,8 +1,41 @@
 import frappe
 from frappe import _
 from frappe.utils import add_days, add_to_date, cint, get_datetime, getdate, now_datetime, nowdate
+from frappe.utils.data import get_datetime_in_timezone
 from frappe.utils.safe_exec import get_safe_globals
 from datetime import timedelta
+
+
+class _EvalProxy:
+	"""Safe wrapper for rule condition evaluation (doc/row)."""
+
+	def __init__(self, obj):
+		self._obj = obj
+
+	def get(self, key, default=""):
+		try:
+			if hasattr(self._obj, "get"):
+				val = self._obj.get(key)
+			else:
+				val = getattr(self._obj, key, None)
+		except Exception:
+			val = None
+		return default if val is None else val
+
+	def __getattr__(self, key):
+		try:
+			if hasattr(self._obj, "get"):
+				val = self._obj.get(key)
+			else:
+				val = getattr(self._obj, key, None)
+		except Exception:
+			val = None
+		return "" if val is None else val
+
+
+def _eval_proxy(obj):
+	"""Expose safe get()/attr for safe_eval contexts."""
+	return _EvalProxy(obj) if obj is not None else _EvalProxy({})
 
 
 def _is_employee_holiday(employee, date):
@@ -218,6 +251,49 @@ def _get_end_datetime_from_assignee_shift(assign_to_user):
 	return None
 
 
+def _get_shift_end_on_date_for_user(assign_to_user, for_date):
+	"""
+	Return the shift end datetime (prefer actual_end) for the employee on for_date, or None.
+	Mirrors shift lookup used by _get_end_datetime_from_assignee_shift_and_duration.
+	"""
+	try:
+		from hrms.hr.doctype.shift_assignment.shift_assignment import get_employee_shift
+	except ImportError:
+		return None
+
+	for_date = getdate(for_date)
+	employee = frappe.db.get_value("Employee", {"user_id": assign_to_user}, "name", cache=True)
+	if not employee:
+		return None
+
+	candidate = get_datetime(str(for_date) + " 00:00:01")
+	shift = get_employee_shift(employee, candidate, consider_default_shift=True)
+	if not shift:
+		return None
+
+	ws = get_datetime(shift.get("start_datetime") or shift.get("actual_start"))
+	if not ws or getdate(ws) != for_date:
+		return None
+
+	return get_datetime(shift.get("actual_end") or shift.get("end_datetime"))
+
+
+def _cap_end_datetime_to_due_date(assign_to_user, due_date, end_datetime):
+	"""
+	Time-based tasks use working-shift allocation; long durations (e.g. 810 min) can span
+	multiple calendar days so end_datetime may land the day after due_date. Users expect
+	the deadline not to exceed the Due Date — cap to end of shift on due_date.
+	"""
+	if not due_date or not end_datetime:
+		return end_datetime
+	if getdate(end_datetime) <= getdate(due_date):
+		return end_datetime
+	shift_end = _get_shift_end_on_date_for_user(assign_to_user, due_date)
+	if shift_end:
+		return shift_end
+	return get_datetime(str(getdate(due_date)) + " 23:59:59")
+
+
 def _resolve_assign_to(rule, context=None):
 	"""Resolve the assign_to user based on assign_to_type"""
 	assign_to_type = rule.get("assign_to_type") or "User"
@@ -323,10 +399,12 @@ def _resolve_assign_to(rule, context=None):
 def _get_due_date_skipping_holidays(assign_to_user, due_days):
 	"""
 	Return due_date = today + due_days, skipping holidays so the due date falls on a working day.
+	Also skips days where the employee has no working shift (weekly off / roster gaps) when HRMS is installed.
 	Uses assignee's Employee holiday list if HRMS/ERPNext is available; otherwise returns add_days(today, due_days).
 	"""
 	due_days = cint(due_days or 0)
-	due_date = add_days(nowdate(), due_days)
+	today = _get_today_for_user(assign_to_user)
+	due_date = add_days(today, due_days)
 
 	try:
 		employee = frappe.db.get_value("Employee", {"user_id": assign_to_user}, "name", cache=True)
@@ -334,12 +412,46 @@ def _get_due_date_skipping_holidays(assign_to_user, due_days):
 			return due_date
 		from erpnext.setup.doctype.employee.employee import is_holiday
 
-		# If due_date falls on a holiday, advance to the next working day
-		while is_holiday(employee, due_date, raise_exception=False):
+		def _has_shift_on_date(check_date) -> bool:
+			"""Return True if HRMS has a shift for employee on check_date."""
+			try:
+				from hrms.hr.doctype.shift_assignment.shift_assignment import get_employee_shift
+			except ImportError:
+				# If HRMS not installed, don't block on shift existence.
+				return True
+
+			candidate = get_datetime(str(check_date) + " 00:00:01")
+			shift = get_employee_shift(employee, candidate, consider_default_shift=True)
+			if not shift:
+				return False
+
+			ws = get_datetime(shift.get("start_datetime") or shift.get("actual_start"))
+			if not ws:
+				return False
+			return getdate(ws) == getdate(check_date)
+
+		# If due_date is a holiday / on leave OR employee has no shift, advance to next working day
+		while is_holiday(employee, due_date, raise_exception=False) or not _has_shift_on_date(due_date):
 			due_date = add_days(due_date, 1)
+		# Safety guard: never return a date before assignee-local "today"
+		if getdate(due_date) < getdate(today):
+			due_date = today
 		return due_date
 	except Exception:
 		return due_date
+
+
+def _get_today_for_user(user):
+	"""Return current date in user's timezone; fallback to system nowdate."""
+	try:
+		time_zone = frappe.db.get_value("User", user, "time_zone", cache=True)
+		if not time_zone:
+			time_zone = frappe.db.get_single_value("System Settings", "time_zone")
+		if time_zone:
+			return getdate(get_datetime_in_timezone(time_zone))
+	except Exception:
+		pass
+	return getdate(nowdate())
 
 
 def _get_next_working_day(assign_to_user, from_date):
@@ -470,14 +582,16 @@ def _create_task_from_rule(rule, context=None):
 	end_datetime = None
 	depends_on_time = cint(rule.depends_on_time or 0)
 	ref_dt_for_end = None
-	if due_date and due_date != getdate(now_datetime()):
+	if due_date and getdate(due_date) != _get_today_for_user(assign_to):
 		ref_dt_for_end = get_datetime(str(due_date) + " 00:00:01")
 	if depends_on_time and rule.time_limit_in_minutes:
+		tlim = cint(rule.time_limit_in_minutes)
 		end_datetime = _get_end_datetime_from_assignee_shift_and_duration(
-			assign_to, cint(rule.time_limit_in_minutes), reference_datetime=ref_dt_for_end
+			assign_to, tlim, reference_datetime=ref_dt_for_end
 		)
 		if not end_datetime:
-			end_datetime = add_to_date(now_datetime(), minutes=cint(rule.time_limit_in_minutes))
+			end_datetime = add_to_date(now_datetime(), minutes=tlim)
+		end_datetime = _cap_end_datetime_to_due_date(assign_to, due_date, end_datetime)
 
 	rule_name = rule.get("name") if isinstance(rule, dict) else rule.name
 	doc_dict = {
@@ -522,7 +636,7 @@ def _create_task_from_rule(rule, context=None):
 
 def _context(doc):
 	return {
-		"doc": doc,
+		"doc": _eval_proxy(doc),
 		"nowdate": nowdate,
 		"frappe": frappe._dict(utils=get_safe_globals().get("frappe").get("utils")),
 	}

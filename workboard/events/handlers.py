@@ -2,10 +2,19 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, parse_val
 
-from workboard.utils import _context, _create_task_from_rule
+from workboard.utils import _context, _create_task_from_rule, _eval_proxy
 
 # frappe.safe_eval() whitelist does not include len/cint/flt; child_table_condition often needs them.
 _WB_SAFE_EVAL_GLOBALS = {"len": len, "cint": cint, "flt": flt}
+
+
+def _safe_eval_rule_expr(expr, ctx, log_prefix):
+	"""Evaluate WB Task Rule expression safely; return False on error."""
+	try:
+		return bool(frappe.safe_eval(expr, dict(_WB_SAFE_EVAL_GLOBALS), ctx))
+	except Exception as e:
+		frappe.logger("wb_task_rule").info(f"{log_prefix} ERROR evaluating expression {expr!r}: {e}")
+		return False
 
 
 def _child_field_val_for_compare(row, child_fieldname, child_doctype=None):
@@ -177,7 +186,7 @@ def create_task_for_event(doc, method):
 						continue
 
 			if r.condition:
-				result = frappe.safe_eval(r.condition, dict(_WB_SAFE_EVAL_GLOBALS), ctx)
+				result = _safe_eval_rule_expr(r.condition, ctx, "[WBRule]   condition")
 				frappe.logger("wb_task_rule").info(f"[WBRule]   condition={r.condition!r} result={result}")
 				if not result:
 					frappe.logger("wb_task_rule").info(f"[WBRule]   SKIP: condition is False")
@@ -210,16 +219,12 @@ def create_task_for_event(doc, method):
 				# Create one task per matching child row
 				for i, row in enumerate(child_rows):
 					row_ctx = ctx.copy()
-					row_ctx["row"] = row
+					row_ctx["row"] = _eval_proxy(row)
 					row_ctx["child_table_name"] = r.reference_child_table
 					child_row_id = row.get("name") if hasattr(row, "get") else None
 					child_row_id = child_row_id or (row.get("idx") if hasattr(row, "get") else None) or i
 					row_ctx["child_table_id"] = child_row_id
-					try:
-						row_result = frappe.safe_eval(child_cond, dict(_WB_SAFE_EVAL_GLOBALS), row_ctx)
-					except Exception as e:
-						frappe.logger("wb_task_rule").info(f"[WBRule]   row[{i}] condition ERROR: {e}")
-						continue
+					row_result = _safe_eval_rule_expr(child_cond, row_ctx, f"[WBRule]   row[{i}] condition")
 
 					frappe.logger("wb_task_rule").info(f"[WBRule]   row[{i}] result={row_result}")
 					if row_result:
