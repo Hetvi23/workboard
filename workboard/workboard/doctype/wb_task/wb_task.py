@@ -31,6 +31,7 @@ def _check_filter_match(actual, expected_value, filter_type):
 		expected_value = ""
 	expected_value = cstr(expected_value).strip()
 	actual_str = cstr(actual).strip() if actual is not None else ""
+	filter_type = cstr(filter_type).strip()
 
 	if filter_type == "Equals":
 		return actual_str == expected_value
@@ -39,27 +40,36 @@ def _check_filter_match(actual, expected_value, filter_type):
 	if filter_type == "Like":
 		if not expected_value:
 			return False
-		pat = re.escape(expected_value).replace("%", ".*").replace("_", ".")
+		# If user doesn't provide SQL wildcards, treat Like as "contains".
+		raw = expected_value.replace("*", "%")
+		if "%" not in raw and "_" not in raw:
+			raw = f"%{raw}%"
+		pat = re.escape(raw).replace("%", ".*").replace("_", ".")
 		return bool(re.match("^" + pat + "$", actual_str, re.IGNORECASE))
 	if filter_type == "Not Like":
 		if not expected_value:
 			return True
-		pat = re.escape(expected_value).replace("%", ".*").replace("_", ".")
-		return not re.match("^" + pat + "$", actual_str, re.IGNORECASE)
+		raw = expected_value.replace("*", "%")
+		if "%" not in raw and "_" not in raw:
+			raw = f"%{raw}%"
+		pat = re.escape(raw).replace("%", ".*").replace("_", ".")
+		return not bool(re.match("^" + pat + "$", actual_str, re.IGNORECASE))
 	if filter_type == "In":
 		if not expected_value:
 			return False
-		vals = [v.strip() for v in expected_value.split(",") if v.strip()]
-		return actual_str in vals
+		vals = [v.strip() for v in re.split(r"[,\n;]+", expected_value) if v.strip()]
+		return actual_str.lower() in {v.lower() for v in vals}
 	if filter_type == "Not In":
 		if not expected_value:
 			return True
-		vals = [v.strip() for v in expected_value.split(",") if v.strip()]
-		return actual_str not in vals
+		vals = [v.strip() for v in re.split(r"[,\n;]+", expected_value) if v.strip()]
+		return actual_str.lower() not in {v.lower() for v in vals}
 	if filter_type == "Is":
-		# Is Empty / Is Not Empty
+		# Supports: Empty / Null / Not Set / Not Empty / Set
 		if expected_value and expected_value.lower() in ("empty", "null", "not set"):
 			return not actual_str
+		if expected_value and expected_value.lower() in ("not empty", "set"):
+			return bool(actual_str)
 		return bool(actual_str)
 	# Numeric
 	try:
