@@ -59,7 +59,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Priority",
-   "options": "\nHigh\nMedium\nLow\nRepeat",
+   "options": "\nHigh\nMedium\nLow\nRepeat\nReminder",
    "reqd": 1
   },
   {
