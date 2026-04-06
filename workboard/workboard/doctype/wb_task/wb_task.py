@@ -33,9 +33,16 @@ def _check_filter_match(actual, expected_value, filter_type):
 	actual_str = cstr(actual).strip() if actual is not None else ""
 	filter_type = cstr(filter_type).strip()
 
+	def _looks_numeric(s: str) -> bool:
+		return bool(re.match(r"^-?\d+(?:\.\d+)?$", cstr(s).strip()))
+
 	if filter_type == "Equals":
+		if _looks_numeric(actual_str) and _looks_numeric(expected_value):
+			return flt(actual_str) == flt(expected_value)
 		return actual_str == expected_value
 	if filter_type == "Not Equals":
+		if _looks_numeric(actual_str) and _looks_numeric(expected_value):
+			return flt(actual_str) != flt(expected_value)
 		return actual_str != expected_value
 	if filter_type == "Like":
 		if not expected_value:
