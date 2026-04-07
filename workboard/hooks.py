@@ -139,9 +139,10 @@ app_license = "agpl-3.0"
 
 doc_events = {
 	"WB Task Extension": {
-		"on_submit": "workboard.workboard.workboard.doctype.wb_task_extension.wb_task_extension.update_wb_task_on_extension_submit",
+		"on_submit": "workboard.workboard.doctype.wb_task_extension.wb_task_extension.update_wb_task_on_extension_submit",
 	},
 	"Quotation": {
+		"before_cancel": "workboard.reference_hooks.ignore_wb_task_links_on_quotation_cancel",
 		"on_cancel": "workboard.reference_hooks.cancel_linked_wb_tasks_on_quotation_cancel",
 	},
 }

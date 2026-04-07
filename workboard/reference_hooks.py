@@ -6,6 +6,12 @@
 import frappe
 
 
+def ignore_wb_task_links_on_quotation_cancel(doc, method=None):
+	ignored = set(doc.get("ignore_linked_doctypes") or [])
+	ignored.add("WB Task")
+	doc.ignore_linked_doctypes = list(ignored)
+
+
 def cancel_linked_wb_tasks_on_quotation_cancel(doc, method=None):
 	"""Doc event: Quotation on_cancel — cancel WB Tasks linked to this quotation."""
 	cancel_wb_tasks_for_reference("Quotation", doc.name)
