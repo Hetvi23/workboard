@@ -12,32 +12,47 @@ class WBTaskExtension(Document):
 			pass
 
 
+def _is_extension_approved(doc) -> bool:
+	if getattr(doc, "docstatus", None) == 1:
+		return True
+	wf_state = (doc.get("workflow_state") or "").strip().lower()
+	return wf_state == "approved"
+
+
 def update_wb_task_on_extension_submit(doc, method=None):
 	"""
 	When a WB Task Extension is submitted, update the linked WB Task with the latest
 	submitted extension's New Due Date and New End Date & Time.
 	If multiple extensions exist, use the most recently submitted one.
 	"""
-	if not doc.wb_task_reference or doc.docstatus != 1:
+	if not doc.wb_task_reference:
+		return
+
+	if not _is_extension_approved(doc):
 		return
 	task_name = doc.wb_task_reference
-	# Get the latest submitted extension for this WB Task (by modified desc)
-	latest = frappe.db.get_all(
-		"WB Task Extension",
-		filters={"wb_task_reference": task_name, "docstatus": 1},
-		fields=["new_due_date", "new_end_datetime"],
-		order_by="modified desc",
-		limit=1,
-	)
-	if not latest:
-		return
-	row = latest[0]
+
+	row = None
+	if doc.docstatus == 1:
+		# Get the latest submitted extension for this WB Task (by modified desc)
+		latest = frappe.db.get_all(
+			"WB Task Extension",
+			filters={"wb_task_reference": task_name, "docstatus": 1},
+			fields=["new_due_date", "new_end_datetime"],
+			order_by="modified desc",
+			limit=1,
+		)
+		if not latest:
+			return
+		row = latest[0]
+	else:
+		# Workflow approval can happen without submit; use current doc values.
+		row = {"new_due_date": doc.get("new_due_date"), "new_end_datetime": doc.get("new_end_datetime")}
+
 	update_fields = {}
 	if row.get("new_due_date") is not None:
-		update_fields["due_date"] = row["new_due_date"]
 		update_fields["new_due_date"] = row["new_due_date"]
 	if row.get("new_end_datetime") is not None:
-		update_fields["end_datetime"] = row["new_end_datetime"]
 		update_fields["new_end_datetime"] = row["new_end_datetime"]
 	if not update_fields:
 		return
