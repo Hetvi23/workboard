@@ -221,8 +221,8 @@ def create_task_for_event(doc, method):
 					row_ctx = ctx.copy()
 					row_ctx["row"] = _eval_proxy(row)
 					row_ctx["child_table_name"] = r.reference_child_table
-					child_row_id = row.get("name") if hasattr(row, "get") else None
-					child_row_id = child_row_id or (row.get("idx") if hasattr(row, "get") else None) or i
+					child_row_id = row.get("idx") if hasattr(row, "get") else None
+					child_row_id = child_row_id or (row.get("name") if hasattr(row, "get") else None) or i
 					row_ctx["child_table_id"] = child_row_id
 					row_result = _safe_eval_rule_expr(child_cond, row_ctx, f"[WBRule]   row[{i}] condition")
 

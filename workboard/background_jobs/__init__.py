@@ -87,8 +87,8 @@ def _run_offset_rules(hourly_only=False):
 						row_ctx = ctx.copy()
 						row_ctx["row"] = _eval_proxy(row)
 						row_ctx["child_table_name"] = r.reference_child_table
-						child_row_id = row.get("name") if hasattr(row, "get") else None
-						child_row_id = child_row_id or (row.get("idx") if hasattr(row, "get") else None) or None
+						child_row_id = row.get("idx") if hasattr(row, "get") else None
+						child_row_id = child_row_id or (row.get("name") if hasattr(row, "get") else None) or None
 						row_ctx["child_table_id"] = child_row_id
 						if _safe_eval_rule_expr(r.child_table_condition, row_ctx):
 							_create_task_from_rule(r, context=row_ctx)
