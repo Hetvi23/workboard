@@ -38,9 +38,6 @@ frappe.ui.form.on('WB Task Rule', {
 				]);
 			};
 
-			// Always set these (must NOT be skipped when reference_child_table triggers async branch — that used to break after Save)
-			frm.set_df_property('reference_date', 'options', get_date_change_options());
-
 			let child_table_options = $.map(fields, function (d) {
 				return d.fieldtype == 'Table' ? d.fieldname : null;
 			});
@@ -54,12 +51,26 @@ frappe.ui.form.on('WB Task Rule', {
 			const ownerOption = { value: 'owner', label: 'owner (Created By)' };
 			frm.set_df_property('assign_to_field', 'options', ['', ownerOption].concat(user_link_options));
 
-			// If a reference child table is selected, include its fields in Value Changed options (async child DocType)
+			// If a reference child table is selected, use child table's date fields for Reference Date
 			if (frm.doc.reference_child_table) {
 				let child_df = (fields || []).find(d => d.fieldname === frm.doc.reference_child_table && d.fieldtype === 'Table');
 				if (child_df && child_df.options) {
 					frappe.model.with_doctype(child_df.options, function () {
 						let child_fields = frappe.get_doc('DocType', child_df.options).fields || [];
+
+						// Reference Date: child table Date/Datetime fields + creation/modified
+						let child_date_options = $.map(child_fields, function (d) {
+							return d.fieldtype == 'Date' || d.fieldtype == 'Datetime'
+								? get_select_options(d)
+								: null;
+						});
+						child_date_options = child_date_options.concat([
+							{ value: 'creation', label: `creation (${__('Created On')})` },
+							{ value: 'modified', label: `modified (${__('Last Modified Date')})` }
+						]);
+						frm.set_df_property('reference_date', 'options', child_date_options);
+
+						// Value Changed: include child table fields
 						let child_value_changed_options = $.map(child_fields, function (d) {
 							return frappe.model.no_value_type.includes(d.fieldtype)
 								? null : get_select_options(d, frm.doc.reference_child_table);
@@ -70,6 +81,8 @@ frappe.ui.form.on('WB Task Rule', {
 				}
 			}
 
+			// No child table selected — use parent doctype's date fields for Reference Date
+			frm.set_df_property('reference_date', 'options', get_date_change_options());
 			_apply_value_changed_options(frm, options, []);
 		});
 	},
@@ -91,7 +104,8 @@ frappe.ui.form.on('WB Task Rule', {
 		frm.trigger('setup_fieldname_select');
 	},
 	reference_child_table: function (frm) {
-		// Recompute value_changed options when child table selection changes
+		// Clear reference_date since available options change between parent and child table
+		frm.set_value('reference_date', '');
 		frm.trigger('setup_fieldname_select');
 	},
 	assign_to_type: function (frm) {

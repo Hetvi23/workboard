@@ -43,6 +43,7 @@
   "based_on",
   "reference_date",
   "days_before_or_after",
+  "hours_before_or_after",
   "value_changed",
   "connection_tab"
  ],
@@ -286,6 +287,14 @@
    "fieldtype": "Int",
    "label": "Days Before or After",
    "mandatory_depends_on": "eval:doc.based_on == \"Days After\" || doc.based_on == \"Days Before\""
+  },
+  {
+   "depends_on": "eval:doc.based_on == \"Days After\" || doc.based_on == \"Days Before\"",
+   "description": "Additional hours offset. E.g. if Days=1 and Hours=2, task triggers 1 day and 2 hours after creation.",
+   "fieldname": "hours_before_or_after",
+   "fieldtype": "Int",
+   "label": "Hours Before or After",
+   "non_negative": 1
   },
   {
    "depends_on": "eval:doc.based_on == \"Value Change\"",

@@ -1,6 +1,6 @@
 import frappe
 from frappe import _
-from frappe.utils import add_days, add_to_date, cint, flt, getdate, nowdate, today
+from frappe.utils import add_days, add_to_date, cint, flt, getdate, now_datetime, nowdate, today
 
 from workboard.utils import _context, _create_task_from_rule, _eval_proxy
 
@@ -61,14 +61,17 @@ def _run_recurring_rules():
 			frappe.log_error(title=_("WorkBoard Error"), message=frappe.get_traceback())
 
 
-def _run_offset_rules():
+def _run_offset_rules(hourly_only=False):
+	filters = {
+		"enabled": 1,
+		"event": 1,
+		"based_on": ["in", ["Days Before", "Days After"]],
+	}
+	if hourly_only:
+		filters["hours_before_or_after"] = [">", 0]
 	rules = frappe.get_all(
 		"WB Task Rule",
-		filters={
-			"enabled": 1,
-			"event": 1,
-			"based_on": ["in", ["Days Before", "Days After"]],
-		},
+		filters=filters,
 		fields=["*"],
 	)
 	for r in rules:
@@ -102,12 +105,37 @@ def _docs_matching_offset_window(rule):
 		return out
 	if not frappe.db.has_column(rule.reference_doctype, rule.reference_date):
 		return out
-	diff = cint(rule.days_before_or_after or 0)
-	if rule.based_on == "Days After":
-		diff = -diff
-	ref_date = add_to_date(nowdate(), days=diff)
-	start = f"{ref_date} 00:00:00.000000"
-	end = f"{ref_date} 23:59:59.000000"
+
+	diff_days = cint(rule.days_before_or_after or 0)
+	diff_hours = cint(rule.get("hours_before_or_after") if isinstance(rule, dict) else getattr(rule, "hours_before_or_after", 0) or 0)
+
+	if diff_days == 0 and diff_hours == 0:
+		# No offset — match documents created today
+		ref_date = nowdate()
+		start = f"{ref_date} 00:00:00.000000"
+		end = f"{ref_date} 23:59:59.000000"
+	elif diff_hours > 0:
+		# Hours-level precision: find docs whose reference_date is exactly
+		# (days + hours) ago (for Days After) or in the future (for Days Before).
+		# We use a 1-hour matching window around the target datetime.
+		now = now_datetime()
+		if rule.based_on == "Days After":
+			target = add_to_date(now, days=-diff_days, hours=-diff_hours)
+		else:
+			target = add_to_date(now, days=diff_days, hours=diff_hours)
+		# 1-hour window so the scheduler (which runs every ~hour) catches the docs
+		window_start = add_to_date(target, hours=-1)
+		start = window_start.strftime("%Y-%m-%d %H:%M:%S.000000")
+		end = target.strftime("%Y-%m-%d %H:%M:%S.000000")
+	else:
+		# Days-only offset (original logic)
+		diff = diff_days
+		if rule.based_on == "Days After":
+			diff = -diff
+		ref_date = add_to_date(nowdate(), days=diff)
+		start = f"{ref_date} 00:00:00.000000"
+		end = f"{ref_date} 23:59:59.000000"
+
 	names = frappe.get_all(
 		rule.reference_doctype,
 		fields=["name"],
@@ -119,6 +147,14 @@ def _docs_matching_offset_window(rule):
 	for n in names:
 		out.append(frappe.get_doc(rule.reference_doctype, n.name))
 	return out
+
+
+def trigger_hourly_offset_rules():
+	"""Hourly scheduler entry: run offset rules that have hours_before_or_after set."""
+	try:
+		_run_offset_rules(hourly_only=True)
+	except Exception:
+		frappe.log_error(title=_("WorkBoard Error"), message=frappe.get_traceback())
 
 
 def update_task_status():
