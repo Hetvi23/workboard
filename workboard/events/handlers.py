@@ -2,7 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import cint, flt, parse_val
 
-from workboard.utils import _context, _create_task_from_rule, _eval_proxy
+from workboard.utils import _context, _create_task_from_rule, _eval_proxy, child_row_id_for_wb_task_context
 
 # frappe.safe_eval() whitelist does not include len/cint/flt; child_table_condition often needs them.
 _WB_SAFE_EVAL_GLOBALS = {"len": len, "cint": cint, "flt": flt}
@@ -221,8 +221,7 @@ def create_task_for_event(doc, method):
 					row_ctx = ctx.copy()
 					row_ctx["row"] = _eval_proxy(row)
 					row_ctx["child_table_name"] = r.reference_child_table
-					child_row_id = row.get("idx") if hasattr(row, "get") else None
-					child_row_id = child_row_id or (row.get("name") if hasattr(row, "get") else None) or i
+					child_row_id = child_row_id_for_wb_task_context(row, i)
 					row_ctx["child_table_id"] = child_row_id
 					row_result = _safe_eval_rule_expr(child_cond, row_ctx, f"[WBRule]   row[{i}] condition")
 

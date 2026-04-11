@@ -2,7 +2,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, add_to_date, cint, flt, getdate, now_datetime, nowdate, today
 
-from workboard.utils import _context, _create_task_from_rule, _eval_proxy
+from workboard.utils import _context, _create_task_from_rule, _eval_proxy, child_row_id_for_wb_task_context
 
 _WB_SAFE_EVAL_GLOBALS = {"len": len, "cint": cint, "flt": flt}
 
@@ -83,13 +83,11 @@ def _run_offset_rules(hourly_only=False):
 
 				if r.reference_child_table and r.child_table_condition:
 					child_rows = ref_doc.get(r.reference_child_table) or []
-					for row in child_rows:
+					for i, row in enumerate(child_rows):
 						row_ctx = ctx.copy()
 						row_ctx["row"] = _eval_proxy(row)
 						row_ctx["child_table_name"] = r.reference_child_table
-						child_row_id = row.get("idx") if hasattr(row, "get") else None
-						child_row_id = child_row_id or (row.get("name") if hasattr(row, "get") else None) or None
-						row_ctx["child_table_id"] = child_row_id
+						row_ctx["child_table_id"] = child_row_id_for_wb_task_context(row, i)
 						if _safe_eval_rule_expr(r.child_table_condition, row_ctx):
 							_create_task_from_rule(r, context=row_ctx)
 					continue

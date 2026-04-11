@@ -38,6 +38,32 @@ def _eval_proxy(obj):
 	return _EvalProxy(obj) if obj is not None else _EvalProxy({})
 
 
+def child_row_id_for_wb_task_context(row, fallback_index_zero_based=0):
+	"""Value for ``custom_child_table_id`` when creating a WB Task from a child row.
+
+	Prefer the child row's ``name`` (table primary key in DB). Using ``idx`` alone breaks
+	``frappe.db.exists(child_doctype, id)`` because ``idx`` is not the row name.
+
+	If there is no name yet, use the row's ``idx`` (Frappe line order). Last resort: 1-based
+	position from ``fallback_index_zero_based`` (so the first row is ``1``, not ``0``).
+	"""
+	if row is None:
+		return fallback_index_zero_based + 1
+	try:
+		name = row.get("name") if hasattr(row, "get") else getattr(row, "name", None)
+	except Exception:
+		name = None
+	if name:
+		return name
+	try:
+		idx = row.get("idx") if hasattr(row, "get") else getattr(row, "idx", None)
+	except Exception:
+		idx = None
+	if idx is not None:
+		return cint(idx)
+	return cint(fallback_index_zero_based) + 1
+
+
 def _is_employee_holiday(employee, date):
 	"""Return True if the given date is a holiday for the employee. Safe if ERPNext/HRMS not available."""
 	try:
