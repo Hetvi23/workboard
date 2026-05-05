@@ -8,6 +8,24 @@ from workboard.utils import _context, _create_task_from_rule, _eval_proxy, child
 _WB_SAFE_EVAL_GLOBALS = {"len": len, "cint": cint, "flt": flt}
 
 
+def _normalize_value_changed_field(value_changed: str) -> str:
+	"""Return canonical field path from Value Changed option.
+
+	Accepts both:
+	- "items.stock_status"
+	- "items.stock_status (Stock Status)"
+	and normalizes to "items.stock_status".
+	"""
+	if not value_changed:
+		return ""
+	v = value_changed.strip()
+	# Some UIs/store paths keep the display label suffix in parentheses.
+	# Strip trailing " (Label)" so DB column checks don't fail.
+	if " (" in v and v.endswith(")"):
+		v = v.split(" (", 1)[0].strip()
+	return v
+
+
 def _safe_eval_rule_expr(expr, ctx, log_prefix):
 	"""Evaluate WB Task Rule expression safely; return False on error."""
 	try:
@@ -104,15 +122,21 @@ def create_task_for_event(doc, method):
 				if not r.value_changed:
 					frappe.logger("wb_task_rule").info(f"[WBRule]   SKIP: value_changed is empty")
 					continue
+				value_changed = _normalize_value_changed_field(r.value_changed)
+				if not value_changed:
+					frappe.logger("wb_task_rule").info(
+						f"[WBRule]   SKIP: normalized value_changed is empty from {r.value_changed!r}"
+					)
+					continue
 
 				# Support child table value change: "child_table_field.child_fieldname"
-				if "." in r.value_changed:
-					table_fieldname, child_fieldname = r.value_changed.split(".", 1)
+				if "." in value_changed:
+					table_fieldname, child_fieldname = value_changed.split(".", 1)
 					meta = frappe.get_meta(doc.doctype)
 					table_df = meta.get_field(table_fieldname) if meta else None
 					if not table_df or table_df.fieldtype != "Table" or not table_df.options:
 						frappe.logger("wb_task_rule").info(
-							f"[WBRule]   SKIP: value_changed table field invalid: {r.value_changed}"
+							f"[WBRule]   SKIP: value_changed table field invalid: {r.value_changed} -> {value_changed}"
 						)
 						continue
 					child_doctype = table_df.options
@@ -161,7 +185,7 @@ def create_task_for_event(doc, method):
 									break
 
 					frappe.logger("wb_task_rule").info(
-						f"[WBRule]   Value Change (child) check: field={r.value_changed} changed={changed}"
+						f"[WBRule]   Value Change (child) check: field={r.value_changed} -> {value_changed} changed={changed}"
 					)
 					if not changed:
 						frappe.logger("wb_task_rule").info(f"[WBRule]   SKIP: value has not changed (child)")
@@ -169,17 +193,17 @@ def create_task_for_event(doc, method):
 
 				else:
 					# Parent (non–child-table) field: compare before vs after on the main document only
-					if not frappe.db.has_column(doc.doctype, r.value_changed):
+					if not frappe.db.has_column(doc.doctype, value_changed):
 						frappe.logger("wb_task_rule").info(
-							f"[WBRule]   SKIP: value_changed field missing or not a column: {r.value_changed}"
+							f"[WBRule]   SKIP: value_changed field missing or not a column: {r.value_changed} -> {value_changed}"
 						)
 						continue
 					doc_before_save = doc.get_doc_before_save()
-					field_value_before_save = doc_before_save.get(r.value_changed) if doc_before_save else None
+					field_value_before_save = doc_before_save.get(value_changed) if doc_before_save else None
 					field_value_before_save = parse_val(field_value_before_save)
-					current_value = doc.get(r.value_changed)
+					current_value = doc.get(value_changed)
 					frappe.logger("wb_task_rule").info(
-						f"[WBRule]   Value Change check: field={r.value_changed} before={field_value_before_save!r} after={current_value!r}"
+						f"[WBRule]   Value Change check: field={r.value_changed} -> {value_changed} before={field_value_before_save!r} after={current_value!r}"
 					)
 					if current_value == field_value_before_save:
 						frappe.logger("wb_task_rule").info(f"[WBRule]   SKIP: value has not changed")
