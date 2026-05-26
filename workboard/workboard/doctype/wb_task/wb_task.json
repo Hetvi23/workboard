@@ -34,6 +34,8 @@
   "section_break_uakq",
   "task_type",
   "wb_task_rule",
+  "due_days",
+  "time_limit_in_minutes",
   "task_time_duration_minutes",
   "column_break_fmsi",
   "tab_2_tab",
@@ -220,6 +222,20 @@
    "label": "WB Task Rule",
    "options": "WB Task Rule",
    "read_only": 1
+  },
+  {
+   "fieldname": "due_days",
+   "fieldtype": "Int",
+   "label": "Due Days",
+   "read_only": 1,
+   "fetch_from": "wb_task_rule.due_days"
+  },
+  {
+   "fieldname": "time_limit_in_minutes",
+   "fieldtype": "Int",
+   "label": "Time Limit (Minutes)",
+   "read_only": 1,
+   "fetch_from": "wb_task_rule.time_limit_in_minutes"
   },
   {
    "fieldname": "task_time_duration_minutes",
