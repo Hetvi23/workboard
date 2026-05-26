@@ -3,7 +3,14 @@
 
 frappe.ui.form.on('WB Task', {
   refresh(frm) {
-    frm.trigger('add_action_buttons');
+    if (frm.doc.status === 'New' && frappe.session.user === frm.doc.assign_to && !frm.is_new()) {
+      frm.set_value('status', 'Open');
+      frm.save('Save', () => {
+        frm.trigger('add_action_buttons');
+      });
+    } else {
+      frm.trigger('add_action_buttons');
+    }
   },
   add_action_buttons(frm) {
     if (frm.is_new()) return;
@@ -40,7 +47,7 @@ frappe.ui.form.on('WB Task', {
     }
 
     // Cancel - when status is Open or Overdue (Red). Only for: Assign From = current user, or Assign From = Administrator and (Administrator or Role Profile = Process Coordinator)
-    if (['Open', 'Overdue'].includes(frm.doc.status)) {
+    if (['Open', 'Extended', 'Overdue', 'New'].includes(frm.doc.status)) {
       frm.call({
         method: 'get_can_cancel_task',
         doc: frm.doc,
@@ -75,7 +82,7 @@ frappe.ui.form.on('WB Task', {
         const has_admin_role = admin_role && frappe.user_roles.includes(admin_role);
         
         // Mark Done button - for assignee on Open/Overdue tasks (Manual tasks) - Green
-        if (frm.doc.task_type === 'Manual' && ['Open', 'Overdue'].includes(frm.doc.status)) {
+        if (frm.doc.task_type === 'Manual' && ['Open', 'Extended', 'Overdue'].includes(frm.doc.status)) {
           if (is_assignee || is_admin || has_admin_role) {
             frm.add_custom_button(__('Mark Done'), () => {
               frm.call({
@@ -107,7 +114,7 @@ frappe.ui.form.on('WB Task', {
             });
             frm.change_custom_button_type(__('Mark Completed'), null, 'success');
           }
-        } else if (frm.doc.task_type === 'Auto' && ['Open', 'Overdue'].includes(frm.doc.status)) {
+        } else if (frm.doc.task_type === 'Auto' && ['Open', 'Extended', 'Overdue'].includes(frm.doc.status)) {
           // For Auto tasks: direct completion from Open/Overdue (Green)
           if (is_assignee) {
             frm.add_custom_button(__('Mark Completed'), () => {

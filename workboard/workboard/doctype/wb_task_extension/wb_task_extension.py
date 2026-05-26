@@ -87,7 +87,7 @@ def update_wb_task_on_extension_submit(doc, method=None):
 		# Workflow approval can happen without submit; use current doc values.
 		row = {"new_due_date": doc.get("new_due_date"), "new_end_datetime": doc.get("new_end_datetime")}
 
-	update_fields = {}
+	update_fields = {"status": "Extended"}
 	if row.get("new_due_date") is not None:
 		update_fields["new_due_date"] = row["new_due_date"]
 	if row.get("new_end_datetime") is not None:

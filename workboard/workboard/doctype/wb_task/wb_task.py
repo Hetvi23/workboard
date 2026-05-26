@@ -116,7 +116,7 @@ class WBTask(Document):
 			self.assign_from = frappe.session.user
 
 	def validate(self):
-		if self.status not in ("Open", "Done", "Completed", "Overdue", "Cancelled"):
+		if self.status not in ("New", "Open", "Extended", "Done", "Completed", "Overdue", "Cancelled"):
 			frappe.throw(_("Invalid Status"))
 		if self.status in ("Done", "Completed"):
 			if not (self.proof_of_work and self.proof_of_work.strip()):
@@ -156,7 +156,7 @@ class WBTask(Document):
 			return
 		today = getdate(nowdate())
 		due = getdate(self.due_date)
-		if self.status in ("Open", "In Progress") and due < today:
+		if self.status in ("New", "Open", "Extended", "In Progress") and due < today:
 			self.status = "Overdue"
 		if self.status == "Overdue" and due >= today:
 			self.status = "Open"
@@ -173,7 +173,7 @@ class WBTask(Document):
 		all_done = all(bool(getattr(r, "completed", 0)) for r in rows)
 		if self.status in ("Done", "Completed") and not all_done:
 			frappe.throw(_("Complete all checklist items before marking as Done or Completed"))
-		if all_done and self.status in ("Open", "In Progress", "Overdue"):
+		if all_done and self.status in ("New", "Open", "Extended", "In Progress", "Overdue"):
 			self.status = "Done" if self.task_type == "Manual" else "Completed"
 
 	def validate_checklist_verification(self):
@@ -277,8 +277,8 @@ class WBTask(Document):
 	@frappe.whitelist()
 	def mark_done(self):
 		"""Mark task as Done by the assignee (task doer)"""
-		if self.status not in ("Open", "Overdue"):
-			frappe.throw(_("Only Open or Overdue tasks can be marked Done"))
+		if self.status not in ("Open", "Extended", "Overdue"):
+			frappe.throw(_("Only Open, Extended or Overdue tasks can be marked Done"))
 
 		# Check if user has admin role
 		settings = get_workboard_settings()
@@ -318,8 +318,8 @@ class WBTask(Document):
 				frappe.throw(_("Only the assigned user can mark this task as Completed"))
 		else:
 			# For Auto tasks, allow direct completion
-			if self.status not in ("Open", "Overdue"):
-				frappe.throw(_("Only Open or Overdue tasks can be marked Completed"))
+			if self.status not in ("Open", "Extended", "Overdue"):
+				frappe.throw(_("Only Open, Extended or Overdue tasks can be marked Completed"))
 
 		self.status = "Completed"
 		self.save(ignore_permissions=True)
@@ -395,9 +395,9 @@ class WBTask(Document):
 
 	@frappe.whitelist()
 	def cancel_task(self):
-		"""Cancel an Open or Overdue task."""
-		if self.status not in ("Open", "Overdue"):
-			frappe.throw(_("Only Open or Overdue tasks can be cancelled"))
+		"""Cancel an Open, Extended or Overdue task."""
+		if self.status not in ("New", "Open", "Extended", "Overdue"):
+			frappe.throw(_("Only New, Open, Extended or Overdue tasks can be cancelled"))
 		if not self._can_cancel_task():
 			frappe.throw(
 				_("Only the assigner (Assign From) can cancel this task, or Administrator / Process Coordinator when Assign From is Administrator.")
