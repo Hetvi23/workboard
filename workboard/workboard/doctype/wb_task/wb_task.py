@@ -250,15 +250,27 @@ class WBTask(Document):
 			if not self.date_of_completion:
 				self.date_of_completion = now_datetime()
 
-			# Calculate timeliness: time-based tasks use end_datetime; date-based use due_date
-			if int(self.depends_on_time or 0) and self.end_datetime:
-				completion_dt = get_datetime(self.date_of_completion)
-				end_dt = get_datetime(self.end_datetime)
-				self.timeliness = "Ontime" if completion_dt <= end_dt else "Late"
-			elif self.due_date and self.date_of_completion:
-				self.timeliness = (
-					"Ontime" if getdate(self.date_of_completion) <= getdate(self.due_date) else "Late"
-				)
+			# Count approved extensions
+			from frappe.utils import add_to_date
+			extension_count = frappe.db.count("WB Task Extension", {"wb_task_reference": self.name, "docstatus": 1})
+
+			if extension_count >= 2:
+				self.timeliness = "Late"
+			else:
+				# Calculate timeliness: time-based tasks use end_datetime; date-based use due_date
+				if int(self.depends_on_time or 0) and self.end_datetime:
+					completion_dt = get_datetime(self.date_of_completion)
+					end_dt = get_datetime(self.end_datetime)
+					
+					if extension_count == 1:
+						# 15 min buffer for first extension
+						end_dt = add_to_date(end_dt, minutes=15)
+						
+					self.timeliness = "Ontime" if completion_dt <= end_dt else "Late"
+				elif self.due_date and self.date_of_completion:
+					self.timeliness = (
+						"Ontime" if getdate(self.date_of_completion) <= getdate(self.due_date) else "Late"
+					)
 		else:
 			self.timeliness = None
 
