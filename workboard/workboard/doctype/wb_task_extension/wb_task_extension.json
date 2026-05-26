@@ -27,7 +27,8 @@
   "description",
   "assign_from",
   "column_break_assign_col",
-  "assign_to"
+  "assign_to",
+  "reporting_manager"
  ],
  "fields": [
   {
@@ -171,6 +172,14 @@
    "fieldname": "assign_to",
    "fieldtype": "Link",
    "label": "Assign To",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "wb_task_reference.reporting_manager",
+   "fieldname": "reporting_manager",
+   "fieldtype": "Link",
+   "label": "Reporting Manager",
    "options": "User",
    "read_only": 1
   }
