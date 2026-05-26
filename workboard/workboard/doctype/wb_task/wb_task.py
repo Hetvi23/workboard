@@ -313,9 +313,9 @@ class WBTask(Document):
 			admin_role = settings.get("workboard_admin_role")
 			has_admin_role = admin_role and admin_role in frappe.get_roles(current_user)
 
-			# Business rule: assignee marks Done; assigner (or admin/admin-role) marks Completed
-			if not is_assigner and not is_admin and not has_admin_role:
-				frappe.throw(_("Only the task assigner can mark this task as Completed"))
+			# Business rule updated per user request: assignee marks Completed
+			if not is_assignee and not is_admin and not has_admin_role:
+				frappe.throw(_("Only the assigned user can mark this task as Completed"))
 		else:
 			# For Auto tasks, allow direct completion
 			if self.status not in ("Open", "Overdue"):

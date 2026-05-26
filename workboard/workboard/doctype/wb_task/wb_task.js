@@ -8,10 +8,17 @@ frappe.ui.form.on('WB Task', {
   add_action_buttons(frm) {
     if (frm.is_new()) return;
 
+    const current_user = frappe.session.user;
+    const is_assignee = current_user === frm.doc.assign_to;
+    const is_assigner = current_user === frm.doc.assign_from;
+    const is_admin = current_user === 'Administrator';
+
     // Task Extension - open new WB Task Extension linked to this task
-    frm.add_custom_button(__('Task Extension'), () => {
-      frappe.new_doc('WB Task Extension', { wb_task_reference: frm.doc.name });
-    }, __('Create'));
+    if (is_assignee) {
+      frm.add_custom_button(__('Task Extension'), () => {
+        frappe.new_doc('WB Task Extension', { wb_task_reference: frm.doc.name });
+      }, __('Create'));
+    }
 
     // Re-Open Task - when status is Done or Completed (Red)
     if (['Done', 'Completed'].includes(frm.doc.status)) {
@@ -58,11 +65,6 @@ frappe.ui.form.on('WB Task', {
         }
       });
     }
-
-    const current_user = frappe.session.user;
-    const is_assignee = current_user === frm.doc.assign_to;
-    const is_assigner = current_user === frm.doc.assign_from;
-    const is_admin = current_user === 'Administrator';
     
     // Get WorkBoard Settings including admin role
     frappe.call({
@@ -90,10 +92,8 @@ frappe.ui.form.on('WB Task', {
         
         // Mark Completed button - Manual tasks: only assigner (or admin/admin-role) can complete
         if (frm.doc.task_type === 'Manual' && frm.doc.status === 'Done') {
-          let can_mark_complete = false;
-          
-          // Only assigner or admin role can mark complete (approval workflow)
-          can_mark_complete = is_assigner || is_admin || has_admin_role;
+          // Changed to is_assignee per user request (Only Assign To User)
+          let can_mark_complete = is_assignee;
           
           if (can_mark_complete) {
             frm.add_custom_button(__('Mark Completed'), () => {
@@ -109,16 +109,18 @@ frappe.ui.form.on('WB Task', {
           }
         } else if (frm.doc.task_type === 'Auto' && ['Open', 'Overdue'].includes(frm.doc.status)) {
           // For Auto tasks: direct completion from Open/Overdue (Green)
-          frm.add_custom_button(__('Mark Completed'), () => {
-            frm.call({
-              method: 'mark_completed',
-              doc: frm.doc,
-              freeze: true,
-              freeze_message: __('Marking as Completed...'),
-              callback: () => frm.reload_doc()
+          if (is_assignee) {
+            frm.add_custom_button(__('Mark Completed'), () => {
+              frm.call({
+                method: 'mark_completed',
+                doc: frm.doc,
+                freeze: true,
+                freeze_message: __('Marking as Completed...'),
+                callback: () => frm.reload_doc()
+              });
             });
-          });
-          frm.change_custom_button_type(__('Mark Completed'), null, 'success');
+            frm.change_custom_button_type(__('Mark Completed'), null, 'success');
+          }
         }
       }
     });
