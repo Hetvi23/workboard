@@ -20,7 +20,7 @@ class WBTaskExtension(Document):
 				curr_end = get_datetime(self.end_datetime or task_doc.end_datetime) # use the end_datetime fetched in Extension doc
 				
 				# Get duration in minutes
-				duration_mins = task_doc.task_time_duration_minutes or 0
+				duration_mins = task_doc.time_limit_in_minutes or task_doc.task_time_duration_minutes or 0
 				if not duration_mins:
 					# Fallback to current end_datetime - creation
 					duration_mins = time_diff_in_seconds(curr_end, get_datetime(task_doc.creation)) / 60
@@ -36,9 +36,8 @@ class WBTaskExtension(Document):
 				curr_due = getdate(self.due_date or task_doc.due_date)
 				
 				# Get duration in days
-				# Try to get due_days from WB Task Rule if linked, else fallback to diff
-				due_days = 0
-				if task_doc.wb_task_rule:
+				due_days = task_doc.due_days or 0
+				if not due_days and task_doc.wb_task_rule:
 					due_days = frappe.db.get_value("WB Task Rule", task_doc.wb_task_rule, "due_days") or 0
 				
 				if not due_days:

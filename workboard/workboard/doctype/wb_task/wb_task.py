@@ -260,7 +260,7 @@ class WBTask(Document):
 				# Calculate timeliness: time-based tasks use end_datetime; date-based use due_date
 				if int(self.depends_on_time or 0) and self.end_datetime:
 					completion_dt = get_datetime(self.date_of_completion)
-					end_dt = get_datetime(self.end_datetime)
+					end_dt = get_datetime(self.new_end_datetime if self.new_end_datetime else self.end_datetime)
 					
 					if extension_count == 1:
 						# 15 min buffer for first extension
@@ -268,8 +268,9 @@ class WBTask(Document):
 						
 					self.timeliness = "Ontime" if completion_dt <= end_dt else "Late"
 				elif self.due_date and self.date_of_completion:
+					target_date = getdate(self.new_due_date if self.new_due_date else self.due_date)
 					self.timeliness = (
-						"Ontime" if getdate(self.date_of_completion) <= getdate(self.due_date) else "Late"
+						"Ontime" if getdate(self.date_of_completion) <= target_date else "Late"
 					)
 		else:
 			self.timeliness = None
