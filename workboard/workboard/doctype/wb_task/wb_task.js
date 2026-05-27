@@ -3,10 +3,14 @@
 
 frappe.ui.form.on('WB Task', {
   refresh(frm) {
-    if (frm.doc.status === 'New' && frappe.session.user === frm.doc.assign_to && !frm.is_new()) {
-      frm.set_value('status', 'Open');
-      frm.save('Save', () => {
-        frm.trigger('add_action_buttons');
+    if (frm.doc.status === 'New' && !frm.is_new()) {
+      frm.call({
+        method: 'mark_open',
+        doc: frm.doc,
+        freeze: false,
+        callback: function() {
+          frm.reload_doc();
+        }
       });
     } else {
       frm.trigger('add_action_buttons');

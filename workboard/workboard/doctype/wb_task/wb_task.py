@@ -276,6 +276,16 @@ class WBTask(Document):
 			self.timeliness = None
 
 	@frappe.whitelist()
+	def mark_open(self):
+		"""Mark task as Open when the assignee views it for the first time."""
+		if self.status != "New":
+			return
+		if frappe.session.user != self.assign_to and frappe.session.user != "Administrator":
+			return
+		self.status = "Open"
+		self.save(ignore_permissions=True)
+
+	@frappe.whitelist()
 	def mark_done(self):
 		"""Mark task as Done by the assignee (task doer)"""
 		if self.status not in ("Open", "Extended", "Overdue"):
