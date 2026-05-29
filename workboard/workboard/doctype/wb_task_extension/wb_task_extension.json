@@ -83,7 +83,7 @@
    "fieldname": "status",
    "fieldtype": "Select",
    "label": "Status",
-   "options": "\nOpen\nDone\nCompleted\nOverdue\nCancelled",
+   "options": "\nNew\nOpen\nExtended\nDone\nCompleted\nOverdue\nCancelled",
    "read_only": 1
   },
   {
@@ -187,7 +187,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-04-14 12:00:00.000000",
+ "modified": "2026-05-29 09:30:00.000000",
  "modified_by": "Administrator",
  "module": "WorkBoard",
  "name": "WB Task Extension",
