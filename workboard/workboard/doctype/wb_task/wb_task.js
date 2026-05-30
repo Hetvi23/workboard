@@ -101,10 +101,13 @@ frappe.ui.form.on('WB Task', {
           }
         }
         
-        // Mark Completed button - Manual tasks: only assigner (or admin/admin-role) can complete
+        // Mark Completed button - Manual tasks in Done status.
+        // Gate: assignee OR a user holding the WorkBoard admin role (not the
+        // Administrator user itself — `is_admin` is intentionally excluded so the
+        // literal Administrator can't sign off other people's tasks unless they
+        // are also the assignee).
         if (frm.doc.task_type === 'Manual' && frm.doc.status === 'Done') {
-          // Changed to is_assignee per user request (Only Assign To User)
-          let can_mark_complete = is_assignee;
+          let can_mark_complete = is_assignee || has_admin_role;
           
           if (can_mark_complete) {
             frm.add_custom_button(__('Mark Completed'), () => {
